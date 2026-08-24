@@ -1,5 +1,5 @@
 @echo off
-title ComicFrame Studio
+title ComicFrame Studio 1.2
 cd /d "%~dp0"
 py comicframe_studio_v1_1.py
 if errorlevel 1 (
