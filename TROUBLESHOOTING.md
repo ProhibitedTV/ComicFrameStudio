@@ -8,9 +8,11 @@ ControlNet is optional. Leave it disabled until the extension loads cleanly and 
 
 A healthy A1111 install can still run ComicFrame with normal `img2img` even when ControlNet is unavailable.
 
+If ControlNet loads but ComicFrame says `Extension route found, but no models exposed`, follow [CONTROLNET.md](CONTROLNET.md) and install an SDXL Canny model under `stable-diffusion-webui\models\ControlNet\`.
+
 ## ControlNet: `mediapipe` has no attribute `solutions`
 
-A recent failure seen with A1111 v1.10.x + `sd-webui-controlnet` looks like:
+A failure seen with A1111 v1.10.x + `sd-webui-controlnet` looks like:
 
 ```text
 AttributeError: module 'mediapipe' has no attribute 'solutions'
@@ -24,11 +26,27 @@ venv\Scripts\python.exe -m pip install mediapipe==0.10.14
 venv\Scripts\python.exe -c "import mediapipe as mp; print(mp.__version__); print(hasattr(mp, 'solutions'))"
 ```
 
-The final command should report `True` for `solutions`.
+The final command should report `0.10.14` and `True` for `solutions`.
+
+### Important: check NumPy after installing MediaPipe
+
+Pip may try to pull NumPy 2.x while satisfying MediaPipe/JAX dependencies. Older A1111 builds depend on NumPy 1.x binary wheels. Check immediately:
+
+```bat
+venv\Scripts\python.exe -c "import numpy; print(numpy.__version__)"
+```
+
+For A1111 v1.10.1, the pinned dependency set uses NumPy 1.26.2. If the command reports 2.x, restore it before troubleshooting anything else:
+
+```bat
+venv\Scripts\python.exe -m pip install --force-reinstall numpy==1.26.2
+```
+
+A normal A1111 startup may also reinstall its pinned requirements.
 
 ## NumPy 2.x binary incompatibility
 
-A ControlNet dependency install may disturb an older A1111 environment. Typical errors include:
+Typical errors include:
 
 ```text
 A module that was compiled using NumPy 1.x cannot be run in NumPy 2.x
@@ -40,7 +58,7 @@ or:
 ValueError: numpy.dtype size changed, may indicate binary incompatibility
 ```
 
-A1111 v1.10.1's pinned dependency set uses NumPy 1.26.x. Repair the WebUI venv rather than the system Python environment. Example:
+Repair the WebUI venv rather than the system Python environment:
 
 ```bat
 venv\Scripts\python.exe -m pip install --force-reinstall numpy==1.26.2
@@ -53,20 +71,46 @@ Then verify imports before relaunching WebUI.
 
 This is a Stable Diffusion numerical failure, not a corrupt source frame.
 
-ComicFrame v1.4 defaults to a 1280-pixel long-edge inference proxy to reduce the likelihood of this failure while preserving the complete frame and aspect ratio.
+ComicFrame defaults to a 1280-pixel long-edge inference proxy to reduce the likelihood of this failure while preserving the complete frame and aspect ratio.
 
 Try, in order:
 
-1. Use **1280 long edge** or **1024 long edge** inference instead of native 1080p diffusion.
+1. Use **1024 long edge** or **768 long edge** inference.
 2. Try a different checkpoint or sampler.
 3. In A1111, enable **Upcast cross attention layer to float32**.
-4. If needed, launch A1111 with full-precision options such as:
+4. Only if needed, test full-precision options such as `--no-half`.
+
+Avoid `--disable-nan-check` as the first response; it suppresses detection rather than fixing the unstable math.
+
+## CUDA out of memory / `OutOfMemoryError`
+
+SDXL img2img is memory-heavy, and ControlNet adds more memory pressure. Full-precision launch flags multiply the cost.
+
+For a roughly 12 GB GPU, start with:
+
+```text
+ComicFrame inference: 1024 long edge
+A1111: --medvram-sdxl
+ControlNet: off until plain img2img succeeds
+```
+
+A practical A1111 launch baseline is:
+
+```text
+--opt-sdp-attention --listen --api --skip-torch-cuda-test --medvram-sdxl
+```
+
+If you previously added:
 
 ```text
 --precision full --no-half --no-half-vae
 ```
 
-Avoid `--disable-nan-check` as the first response; it suppresses detection rather than fixing the unstable math.
+for a NaN problem, remove those flags again when testing VRAM usage. Full precision can turn a numerically stable render into an out-of-memory render.
+
+If NaNs return after restoring half precision, prefer **Upcast cross attention layer to float32** plus lower ComicFrame inference resolution before putting the entire SDXL model back into full precision.
+
+When ControlNet is added, begin with the Canny SMALL or MID model and 768/1024 inference.
 
 ## WebUI API connection
 
