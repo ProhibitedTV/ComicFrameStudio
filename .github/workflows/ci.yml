@@ -16,3 +16,5 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Compile Python sources
         run: python -m compileall -q .
+      - name: Import canonical runtime
+        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio"
