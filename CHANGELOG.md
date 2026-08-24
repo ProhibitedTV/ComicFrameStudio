@@ -7,6 +7,8 @@
 - Added optional Lanczos upscale of the final video back to source resolution.
 - Added live latest-frame preview updates during rendering.
 - Added actionable `NansException` diagnostics.
+- Added profile-aware resume protection so full renders cannot silently mix frames made with different checkpoints, prompts, samplers, strengths, ControlNet settings, or inference resolutions.
+- Test renders now overwrite the requested test range instead of silently reusing stale test frames from older settings.
 - Added a stable `app.py` entrypoint so launchers and packaging no longer depend on versioned implementation filenames.
 - Expanded CI to compile all Python sources.
 - Added troubleshooting documentation for A1111, NumPy, MediaPipe, ControlNet, and UNet NaN failures.
