@@ -2,7 +2,7 @@
 
 ComicFrame Studio is a local desktop GUI for frame-accurate AI video stylization with a Stable Diffusion WebUI API.
 
-The v1 pipeline is intentionally simple and inspectable:
+The pipeline is intentionally simple and inspectable:
 
 1. Probe the source video with `ffprobe`.
 2. Extract every source frame with `ffmpeg`.
@@ -15,11 +15,32 @@ The v1 pipeline is intentionally simple and inspectable:
 
 The app preserves the full source frame and aspect ratio by default. A 1920x1080 source is submitted to img2img as 1920x1080 rather than intentionally cropping or reframing the shot.
 
-## Current status: v1 baseline
+## Current status
 
 The first live v1 test confirmed that the extraction/render/reassembly architecture works. The initial default render was structurally stable but **far too weak stylistically**: at `0.30` denoise with a photoreal-oriented checkpoint and no selected ControlNet model, the result looked close to lightly repainted source footage rather than a strong comic animation treatment.
 
-That is now a useful baseline for v2 development. Near-term priorities include stronger style presets, preflight validation, ControlNet model warnings, easier A/B test assembly, and temporal-consistency options.
+### v1.1 ControlNet fix
+
+v1.1 keeps the same proven render pipeline but replaces the vague ControlNet refresh behavior with a real probe. The launcher now starts `comicframe_studio_v1_1.py` by default.
+
+The probe checks A1111's extension/script APIs plus the canonical sd-webui-controlnet routes:
+
+```text
+/sdapi/v1/extensions
+/sdapi/v1/scripts
+/controlnet/version
+/controlnet/control_types
+/controlnet/model_list
+/controlnet/module_list
+```
+
+It now distinguishes these states instead of leaving a blank model dropdown:
+
+- **ControlNet ready** — models/modules were detected and a Canny-compatible default is selected when possible.
+- **ControlNet detected, no models** — the extension is present but no usable model is exposed.
+- **ControlNet not detected** — A1111 is reachable but the ControlNet extension/API routes are absent or disabled.
+
+If ControlNet is enabled with no selected model, v1.1 blocks the render instead of silently pretending ControlNet is active. You can uncheck ControlNet to intentionally run a plain img2img baseline.
 
 ## Requirements
 
@@ -67,18 +88,19 @@ run_comicframe_studio.bat
 Or directly:
 
 ```bash
-python comicframe_studio.py
+python comicframe_studio_v1_1.py
 ```
 
-## Recommended v1 workflow
+## Recommended workflow
 
 1. Select a source video and project directory.
 2. Start the Stable Diffusion WebUI.
 3. Click **Test API**.
-4. If using ControlNet, click **Refresh ControlNet** and choose a compatible model.
-5. Render a short test range.
-6. Inspect `test_frames/`.
-7. When satisfied, click **FULL RENDER**.
+4. Click **Probe ControlNet**.
+5. If ControlNet is available, choose a compatible model/module.
+6. Render a short test range.
+7. Inspect `test_frames/`.
+8. When satisfied, click **FULL RENDER**.
 
 Project output includes:
 
@@ -123,10 +145,9 @@ Long renders are resume-safe. Existing nontrivial styled frames are skipped, so 
 
 ## Roadmap
 
-- Preflight warning when ControlNet is enabled but no model is selected
 - Named style presets and a simpler stylization-strength control
 - Built-in original-vs-styled test video generation
-- Better checkpoint/model discovery
+- Better checkpoint/model discovery and compatibility feedback
 - Temporal conditioning / optical-flow-assisted consistency
 - Keyframe + propagation workflows
 - Optional proxy-resolution render and controlled upscale
