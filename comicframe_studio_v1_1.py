@@ -1,136 +1,255 @@
 #!/usr/bin/env python3
-"""ComicFrame Studio v1.1 compatibility wrapper.
+"""ComicFrame Studio v1.2 WebUI-aware compatibility layer.
 
-Adds robust ControlNet detection/diagnostics on top of the v1 renderer without
-changing the proven extract/render/reassemble pipeline.
+Discovery is driven by the Stable Diffusion WebUI itself. Instead of assuming
+specific ControlNet extension route names, ComicFrame asks FastAPI for
+/openapi.json, inspects the routes actually exposed by the running instance,
+and then queries matching model/module endpoints.
 """
 from __future__ import annotations
+
+import re
+from urllib.parse import urlsplit
 
 import requests
 
 import comicframe_studio as v1
 
 
-class ComicFrameStudioV11(v1.ComicFrameStudio):
+class ComicFrameStudioV12(v1.ComicFrameStudio):
     def __init__(self):
         super().__init__()
-        self.title("ComicFrame Studio 1.1")
+        self.title("ComicFrame Studio 1.2")
         self._rename_controlnet_button()
 
     def _rename_controlnet_button(self):
-        """Rename the old button without depending on private widget handles."""
+        """Rename the old button without relying on private widget handles."""
         def walk(widget):
             for child in widget.winfo_children():
                 try:
-                    if child.winfo_class() == "TButton" and child.cget("text") == "Refresh ControlNet":
-                        child.configure(text="Probe ControlNet")
+                    if child.winfo_class() == "TButton" and child.cget("text") in {
+                        "Refresh ControlNet", "Probe ControlNet"
+                    }:
+                        child.configure(text="Discover WebUI")
                 except Exception:
                     pass
                 walk(child)
         walk(self)
 
+    @staticmethod
+    def _extract_string_list(data, preferred_keys=()):
+        """Pull a useful list of strings out of common API response shapes."""
+        if isinstance(data, list):
+            result = []
+            for item in data:
+                if isinstance(item, str):
+                    result.append(item)
+                elif isinstance(item, dict):
+                    for key in ("title", "name", "model_name", "filename", "value"):
+                        value = item.get(key)
+                        if isinstance(value, str) and value:
+                            result.append(value)
+                            break
+            return result
+
+        if not isinstance(data, dict):
+            return []
+
+        for key in preferred_keys:
+            value = data.get(key)
+            if isinstance(value, list):
+                return ComicFrameStudioV12._extract_string_list(value)
+
+        # Common extension response keys.
+        for key in (
+            "model_list", "models", "module_list", "modules", "preprocessors",
+            "processors", "items", "data", "results",
+        ):
+            value = data.get(key)
+            if isinstance(value, list):
+                return ComicFrameStudioV12._extract_string_list(value)
+
+        return []
+
     def _refresh_controlnet(self):
-        """Detect ControlNet and explain exactly what A1111 exposes.
-
-        Canonical sd-webui-controlnet routes:
-          /controlnet/version
-          /controlnet/control_types
-          /controlnet/model_list
-          /controlnet/module_list
-
-        A1111 routes are also queried so we can distinguish a missing extension
-        from an installed extension with no models.
-        """
         url = self.api_url()
+        evidence = []
+        discovered_routes = {}
         models = []
         modules = []
-        detected = False
-        evidence = []
+        checkpoints = []
+        loaded_checkpoint = None
 
-        def get_json(path, timeout=15):
+        def get_json(path, timeout=20):
             try:
-                r = requests.get(f"{url}{path}", timeout=timeout)
-                evidence.append(f"GET {path} -> HTTP {r.status_code}")
-                if r.ok:
+                response = requests.get(f"{url}{path}", timeout=timeout)
+                evidence.append(f"GET {path} -> HTTP {response.status_code}")
+                if response.ok:
                     try:
-                        return r.json()
+                        return response.json()
                     except Exception:
                         evidence.append(f"GET {path} -> response was not JSON")
             except Exception as exc:
                 evidence.append(f"GET {path} -> {type(exc).__name__}: {exc}")
             return None
 
-        # A1111-level detection.
-        extensions = get_json("/sdapi/v1/extensions")
-        if isinstance(extensions, list):
-            for item in extensions:
-                if isinstance(item, dict):
-                    name = str(item.get("name", ""))
-                    enabled = bool(item.get("enabled", True))
-                else:
-                    name = str(item)
-                    enabled = True
-                if "controlnet" in name.lower() and enabled:
-                    detected = True
-                    evidence.append(f"A1111 extension detected: {name}")
+        # Ask the Stable Diffusion WebUI what it actually exposes.
+        openapi = get_json("/openapi.json")
+        if isinstance(openapi, dict):
+            paths = openapi.get("paths") or {}
+            if isinstance(paths, dict):
+                discovered_routes = paths
+                self._log(f"WebUI OpenAPI reports {len(paths)} API route(s).")
+            else:
+                self._log("WebUI returned OpenAPI data without a usable paths map.")
+        else:
+            self._log("WebUI did not expose /openapi.json; falling back to known sdapi routes.")
 
-        scripts = get_json("/sdapi/v1/scripts")
-        if isinstance(scripts, dict):
-            names = []
-            for value in scripts.values():
-                if isinstance(value, list):
-                    names.extend(str(x) for x in value)
-            if any("controlnet" in name.lower() for name in names):
-                detected = True
-                evidence.append("A1111 ControlNet script detected")
+        # Core WebUI inventory. These are checkpoints, NOT ControlNet models.
+        options = get_json("/sdapi/v1/options")
+        if isinstance(options, dict):
+            loaded_checkpoint = (
+                options.get("sd_model_checkpoint")
+                or options.get("sd_checkpoint_hash")
+                or options.get("sd_model_hash")
+            )
 
-        # ControlNet extension-level detection.
-        version = get_json("/controlnet/version")
-        if isinstance(version, dict):
-            detected = True
-            evidence.append(f"ControlNet API version: {version.get('version', 'unknown')}")
+        sd_models = get_json("/sdapi/v1/sd-models")
+        checkpoints = self._extract_string_list(sd_models)
+        if checkpoints:
+            self._log(f"Stable Diffusion API reports {len(checkpoints)} checkpoint(s).")
+            if loaded_checkpoint:
+                self._log(f"Loaded checkpoint: {loaded_checkpoint}")
+            for name in checkpoints[:20]:
+                self._log(f"  checkpoint: {name}")
+            if len(checkpoints) > 20:
+                self._log(f"  ... {len(checkpoints) - 20} more checkpoint(s)")
 
-        # Newer versions expose grouped control types, including useful defaults.
-        control_types = get_json("/controlnet/control_types")
-        if isinstance(control_types, dict):
-            detected = True
-            groups = control_types.get("control_types") or {}
-            if isinstance(groups, dict):
-                canny_key = next((k for k in groups if "canny" in k.lower()), None)
-                group = groups.get(canny_key) if canny_key else None
-                if isinstance(group, dict):
-                    modules = list(group.get("module_list") or [])
-                    models = list(group.get("model_list") or [])
-                    default_module = group.get("default_option")
-                    default_model = group.get("default_model")
-                    if default_module:
-                        self.after(0, lambda x=default_module: self.control_module_var.set(x))
-                    if default_model:
-                        self.after(0, lambda x=default_model: self.control_model_var.set(x))
+        # Discover extension routes from the actual OpenAPI document.
+        get_routes = []
+        for path, methods in discovered_routes.items():
+            if not isinstance(path, str) or not isinstance(methods, dict):
+                continue
+            if "get" not in {str(k).lower() for k in methods.keys()}:
+                continue
+            get_routes.append(path)
 
-        # Canonical fallbacks.
+        control_routes = [p for p in get_routes if "control" in p.lower()]
+        if control_routes:
+            self._log("Control-related routes advertised by this WebUI:")
+            for route in control_routes:
+                self._log(f"  {route}")
+
+        # Rank routes whose names strongly suggest model inventory.
+        model_candidates = sorted(
+            [
+                p for p in control_routes
+                if "model" in p.lower()
+                and not re.search(r"/(download|preview|refresh)(/|$)", p.lower())
+                and "{" not in p
+            ],
+            key=lambda p: (
+                0 if "list" in p.lower() else 1,
+                0 if "model" in p.lower() else 1,
+                len(p),
+            ),
+        )
+
+        # Rank routes that may provide preprocessors/modules/control types.
+        module_candidates = sorted(
+            [
+                p for p in control_routes
+                if any(token in p.lower() for token in ("module", "preprocessor", "processor", "control_type"))
+                and "{" not in p
+            ],
+            key=lambda p: (
+                0 if "list" in p.lower() else 1,
+                len(p),
+            ),
+        )
+
+        # Query what the running instance says is available.
+        for path in model_candidates:
+            data = get_json(path)
+            found = self._extract_string_list(data, ("model_list", "models"))
+            # /control_types can contain nested groups instead of one flat list.
+            if not found and isinstance(data, dict):
+                groups = data.get("control_types")
+                if isinstance(groups, dict):
+                    merged = []
+                    for group in groups.values():
+                        if isinstance(group, dict):
+                            merged.extend(self._extract_string_list(group, ("model_list", "models")))
+                    found = merged
+            if found:
+                models = list(dict.fromkeys(found))
+                evidence.append(f"Selected model inventory route: {path}")
+                break
+
+        for path in module_candidates:
+            data = get_json(path)
+            found = self._extract_string_list(
+                data,
+                ("module_list", "modules", "preprocessors", "processors"),
+            )
+            if not found and isinstance(data, dict):
+                groups = data.get("control_types")
+                if isinstance(groups, dict):
+                    merged = []
+                    for group in groups.values():
+                        if isinstance(group, dict):
+                            merged.extend(
+                                self._extract_string_list(
+                                    group,
+                                    ("module_list", "modules", "preprocessors", "processors"),
+                                )
+                            )
+                    found = merged
+            if found:
+                modules = list(dict.fromkeys(found))
+                evidence.append(f"Selected module inventory route: {path}")
+                break
+
+        # Fallbacks for older sd-webui-controlnet versions if OpenAPI is incomplete.
         if not models:
-            data = get_json("/controlnet/model_list?update=true")
-            if not isinstance(data, dict):
-                data = get_json("/controlnet/model_list")
-            if isinstance(data, dict):
-                detected = True
-                models = list(data.get("model_list") or data.get("models") or [])
+            for path in (
+                "/controlnet/model_list?update=true",
+                "/controlnet/model_list",
+                "/controlnet/models",
+            ):
+                data = get_json(path)
+                found = self._extract_string_list(data, ("model_list", "models"))
+                if found:
+                    models = list(dict.fromkeys(found))
+                    evidence.append(f"Fallback model inventory route: {path}")
+                    break
 
         if not modules:
-            data = get_json("/controlnet/module_list?alias_names=false")
-            if not isinstance(data, dict):
-                data = get_json("/controlnet/module_list")
-            if isinstance(data, dict):
-                detected = True
-                modules = list(data.get("module_list") or data.get("modules") or [])
+            for path in (
+                "/controlnet/module_list?alias_names=false",
+                "/controlnet/module_list",
+                "/controlnet/preprocessors",
+            ):
+                data = get_json(path)
+                found = self._extract_string_list(
+                    data,
+                    ("module_list", "modules", "preprocessors", "processors"),
+                )
+                if found:
+                    modules = list(dict.fromkeys(found))
+                    evidence.append(f"Fallback module inventory route: {path}")
+                    break
 
         if models:
             def apply_models():
                 self.control_model_combo["values"] = models
                 current = self.control_model_var.get().strip()
                 if current not in models:
-                    self.control_model_var.set(next((m for m in models if "canny" in m.lower()), models[0]))
+                    preferred = next(
+                        (m for m in models if "canny" in m.lower()),
+                        next((m for m in models if "line" in m.lower()), models[0]),
+                    )
+                    self.control_model_var.set(preferred)
             self.after(0, apply_models)
 
         if modules:
@@ -138,30 +257,37 @@ class ComicFrameStudioV11(v1.ComicFrameStudio):
                 self.control_module_combo["values"] = modules
                 current = self.control_module_var.get().strip()
                 if current not in modules:
-                    self.control_module_var.set(next((m for m in modules if "canny" in m.lower()), modules[0]))
+                    preferred = next(
+                        (m for m in modules if "canny" in m.lower()),
+                        next((m for m in modules if "line" in m.lower()), modules[0]),
+                    )
+                    self.control_module_var.set(preferred)
             self.after(0, apply_modules)
 
-        if detected and models:
-            self._log(f"CONTROLNET READY: {len(models)} model(s), {len(modules)} module(s).")
+        if models:
+            self.after(0, lambda: self.control_enabled_var.set(True))
+            self._log(f"CONTROLNET READY: discovered {len(models)} model(s) and {len(modules)} module/preprocessor(s).")
+            for name in models[:20]:
+                self._log(f"  control model: {name}")
+            if len(models) > 20:
+                self._log(f"  ... {len(models) - 20} more ControlNet model(s)")
             self._set_progress(0, "ControlNet ready")
-        elif detected:
-            self._log("CONTROLNET DETECTED, BUT NO MODELS ARE INSTALLED/EXPOSED.")
-            self._log("Install a ControlNet model compatible with the loaded checkpoint, then Probe ControlNet again.")
-            self._set_progress(0, "ControlNet detected; no models")
+        elif control_routes:
+            self._log("CONTROL API ROUTES FOUND, BUT NO CONTROL MODEL INVENTORY COULD BE PARSED.")
+            self._log("The routes are listed above; this tells us exactly what this WebUI exposes so support can be added without guessing.")
+            self._set_progress(0, "Control routes found; models unresolved")
         else:
-            self._log("CONTROLNET NOT DETECTED.")
-            self._log("A1111 is reachable, but the sd-webui-controlnet API/routes are absent.")
-            self._log("Install/enable sd-webui-controlnet, restart A1111, or uncheck ControlNet for plain img2img.")
+            self._log("NO CONTROLNET/CONTROL ROUTES WERE ADVERTISED BY THE WEBUI API.")
+            self._log("Core Stable Diffusion checkpoints were still discovered successfully; ControlNet is being disabled for this run.")
             self.after(0, lambda: self.control_enabled_var.set(False))
-            self._set_progress(0, "ControlNet not installed/enabled")
+            self._set_progress(0, "No ControlNet API routes")
 
-        self._log("ControlNet probe details:")
+        self._log("Discovery details:")
         for line in evidence:
             self._log(f"  {line}")
 
     def _build_payload(self, frame_path, settings, width, height, frame_number):
         payload = super()._build_payload(frame_path, settings, width, height, frame_number)
-        # The extension's documented always-on script name is lowercase.
         scripts = payload.get("alwayson_scripts")
         if isinstance(scripts, dict) and "ControlNet" in scripts and "controlnet" not in scripts:
             scripts["controlnet"] = scripts.pop("ControlNet")
@@ -170,15 +296,14 @@ class ComicFrameStudioV11(v1.ComicFrameStudio):
     def _render_range(self, start, count, test_only):
         if self.control_enabled_var.get() and not self.control_model_var.get().strip():
             raise RuntimeError(
-                "ControlNet is enabled but no model is selected. Click Probe ControlNet first. "
-                "If the probe says ControlNet is missing, install/enable the extension or uncheck "
-                "ControlNet for a plain img2img baseline."
+                "ControlNet is enabled but no ControlNet model is selected. Click Discover WebUI first. "
+                "If the WebUI advertises no ControlNet routes, uncheck ControlNet and render a plain img2img baseline."
             )
         return super()._render_range(start, count, test_only)
 
 
 def main():
-    ComicFrameStudioV11().mainloop()
+    ComicFrameStudioV12().mainloop()
 
 
 if __name__ == "__main__":
