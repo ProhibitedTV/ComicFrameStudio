@@ -2,7 +2,8 @@
 """ComicFrame Studio v1.4.
 
 Adds adaptive inference resolution, optional upscale-to-source output, live frame
-previews, and actionable Stable Diffusion NaN diagnostics on top of v1.3.
+previews, actionable Stable Diffusion NaN diagnostics, and profile-aware resume
+safety on top of v1.3.
 """
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ import json
 from pathlib import Path
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import ttk
 
 from comicframe_studio_v1_3 import ComicFrameStudioV13
 
@@ -95,19 +96,18 @@ class ComicFrameStudioV14(ComicFrameStudioV13):
 
     def _build_payload(self, frame_path, settings, width, height, frame_number):
         target_width, target_height = self._target_dimensions(width, height)
-        payload = super()._build_payload(
+        return super()._build_payload(
             frame_path,
             settings,
             target_width,
             target_height,
             frame_number,
         )
-        return payload
 
     def _render_one(self, frame_path, out_path, settings, width, height, frame_number):
         target_width, target_height = self._target_dimensions(width, height)
         try:
-            # Pass source dimensions here; _build_payload applies the selected proxy size once.
+            # Pass source dimensions here; _build_payload applies the proxy size once.
             result = super()._render_one(
                 frame_path,
                 out_path,
@@ -127,22 +127,74 @@ class ComicFrameStudioV14(ComicFrameStudioV13):
                 ) from exc
             raise
 
-        # A diffusion frame is expensive; spending a few milliseconds updating the live preview is useful.
+        # Diffusion is expensive; updating the live preview after each completed frame is cheap/useful.
         self.after(0, lambda p=Path(out_path): self._show_image(p, self.output_preview, "output"))
         self.after(0, lambda n=Path(out_path).name: self.output_preview_status.set(n))
         return result
 
-    def _render_range(self, start, count, test_only):
-        p = self.project_paths()
-        p["root"].mkdir(parents=True, exist_ok=True)
-        profile = {
+    def _render_profile(self) -> dict:
+        return {
             "app_version": APP_VERSION,
+            "checkpoint": self.checkpoint_var.get().strip(),
+            "sampler": self.sampler_var.get().strip(),
+            "scheduler": self.scheduler_var.get().strip(),
+            "steps": int(self.steps_var.get()),
+            "cfg": float(self.cfg_var.get()),
+            "style_strength": float(self.denoise_var.get()),
+            "seed": int(self.seed_var.get()),
+            "seed_mode": self.seed_mode_var.get(),
+            "positive_prompt": self.prompt_text.get("1.0", "end").strip(),
+            "negative_prompt": self.negative_text.get("1.0", "end").strip(),
+            "controlnet_enabled": bool(self.control_enabled_var.get()),
+            "controlnet_module": self.control_module_var.get().strip(),
+            "controlnet_model": self.control_model_var.get().strip(),
+            "controlnet_weight": float(self.control_weight_var.get()),
             "inference_mode": self.inference_mode_var.get(),
             "upscale_final_to_source": bool(self.upscale_to_source_var.get()),
         }
-        (p["root"] / "comicframe_profile.json").write_text(
-            json.dumps(profile, indent=2), encoding="utf-8"
-        )
+
+    def _prepare_resume_state(self, start, count, test_only):
+        p = self.project_paths()
+        p["root"].mkdir(parents=True, exist_ok=True)
+        p["test"].mkdir(parents=True, exist_ok=True)
+        p["styled"].mkdir(parents=True, exist_ok=True)
+
+        profile = self._render_profile()
+        profile_path = p["root"] / "comicframe_profile.json"
+
+        if test_only:
+            # A test means "show me these frames with the settings on screen now". Do not
+            # silently reuse yesterday's test frames just because their filenames match.
+            if count is not None:
+                for frame_number in range(start, start + count):
+                    candidate = p["test"] / f"frame_{frame_number:06d}.png"
+                    if candidate.exists():
+                        candidate.unlink()
+            (p["root"] / "comicframe_test_profile.json").write_text(
+                json.dumps(profile, indent=2), encoding="utf-8"
+            )
+            return
+
+        existing = sorted(p["styled"].glob("frame_*.png"))
+        if existing:
+            if not profile_path.exists():
+                raise RuntimeError(
+                    "Existing styled frames were created before profile-aware resume tracking. "
+                    "ComicFrame will not mix them with a new render. Use a new project directory or "
+                    "remove the existing styled_frames folder before starting this full render."
+                )
+            old_profile = json.loads(profile_path.read_text(encoding="utf-8"))
+            if old_profile != profile:
+                raise RuntimeError(
+                    "The current render settings do not match the profile that created the existing "
+                    "styled frames. Resume was blocked to prevent a mixed-style/mixed-resolution video. "
+                    "Restore the previous settings, use a new project directory, or clear styled_frames."
+                )
+
+        profile_path.write_text(json.dumps(profile, indent=2), encoding="utf-8")
+
+    def _render_range(self, start, count, test_only):
+        self._prepare_resume_state(start, count, test_only)
         return super()._render_range(start, count, test_only)
 
     def _assemble(self, info):
