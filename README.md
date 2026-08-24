@@ -1,93 +1,85 @@
 # ComicFrame Studio
 
-ComicFrame Studio is a local desktop GUI for frame-accurate AI video stylization with a Stable Diffusion WebUI API.
+ComicFrame Studio is a local desktop GUI for turning ordinary video into frame-accurate AI-stylized animation through an AUTOMATIC1111/Forge-compatible Stable Diffusion WebUI API.
 
-The core pipeline is simple:
+The project is built around an inspectable pipeline:
 
 1. Probe the source video with `ffprobe`.
 2. Extract every source frame with `ffmpeg`.
-3. Send each frame through Stable Diffusion `img2img`.
-4. Save every rendered frame individually.
-5. Resume long renders by skipping completed frames.
-6. Reassemble at the original source FPS.
-7. Restore the source audio and write `FINAL_STYLED.mp4`.
+3. Run each frame through Stable Diffusion `img2img`.
+4. Optionally use ControlNet for stronger structural guidance.
+5. Save every styled frame individually and resume safely after interruption.
+6. Reassemble the sequence at the original FPS.
+7. Restore the source audio.
 
-The full source frame and aspect ratio are preserved by default.
+The original video is never overwritten.
 
-## v1.3 — UI/UX + WebUI-native controls
+## Current version: v1.4
 
-v1.3 moves the app away from ControlNet-centric setup and makes the normal Stable Diffusion WebUI the primary source of truth.
+v1.4 focuses on reliability and practical video rendering:
 
-### WebUI sync
+- dark two-pane desktop UI
+- WebUI-native checkpoint/sampler/scheduler discovery
+- checkpoint switching from inside ComicFrame
+- comic look presets and editable prompts
+- source + live latest-frame previews
+- optional ControlNet integration
+- adaptive inference resolution
+- optional upscale back to source resolution
+- resume-safe long renders
+- actionable Stable Diffusion NaN diagnostics
 
-ComicFrame now populates controls directly from the running WebUI:
+The stable launcher is now `app.py`; versioned implementation files can evolve without changing shortcuts or launch scripts.
+
+## Why inference resolution is separate from output resolution
+
+A 1920x1080 source no longer has to be diffused natively at 1920x1080.
+
+The recommended v1.4 workflow is:
 
 ```text
-/sdapi/v1/options
-/sdapi/v1/sd-models
-/sdapi/v1/samplers
-/sdapi/v1/schedulers   (when exposed)
-/openapi.json
+1920x1080 source frame
+        ↓
+resize the complete frame to 1280x720
+        ↓
+Stable Diffusion img2img
+        ↓
+optional Lanczos upscale to 1920x1080
+        ↓
+final video
 ```
 
-The UI provides:
+Nothing is cropped and the complete composition is preserved. Lower inference resolution substantially reduces GPU load and helps avoid numerical failures in SDXL.
 
-- a real **Checkpoint** dropdown sourced from `/sdapi/v1/sd-models`
-- a real **Sampler** dropdown sourced from `/sdapi/v1/samplers`
-- a **Scheduler** dropdown when supported by the WebUI
-- automatic loading of the selected checkpoint before a render
-- visible WebUI connection/model status
+Available modes:
 
-### Dark UI
-
-v1.3 introduces a dark desktop interface with clearer sections for source, WebUI settings, look/style, optional continuity controls, rendering, previews, and activity logs.
-
-### Source + output previews
-
-The right side of the app now shows:
-
-- a preview frame extracted from the selected source video
-- the latest generated test/styled frame
-
-This makes it possible to tune the look without constantly jumping between folders.
-
-### Comic presets
-
-v1.3 includes three starting presets:
-
-- **Comic Punch (recommended)** — stronger stylization (`0.48` style strength)
-- **Balanced Comic** — moderate transformation
-- **Conservative / Stable** — close to the original v1 settings
-
-The preset applies prompt, CFG, steps, and style strength, and everything remains editable afterward.
-
-### ControlNet is optional now
-
-ControlNet is no longer treated as a requirement.
-
-It is an optional Stable Diffusion extension that can help lock edges, pose, and scene geometry when style strength is high. If the running WebUI does not expose ControlNet routes, ComicFrame simply disables that option and continues with normal `img2img`.
-
-This is the expected behavior for the currently tested WebUI, which exposes the normal Stable Diffusion model/sampler API but no ControlNet API routes.
+```text
+1280 long edge · recommended
+1024 long edge · fast / stable
+768 long edge · emergency / low VRAM
+Source / native · heavy
+```
 
 ## Requirements
 
 - Python 3.10+
 - `ffmpeg` and `ffprobe` on `PATH`
-- a local AUTOMATIC1111/compatible Stable Diffusion WebUI with API enabled
+- a running Stable Diffusion WebUI with an AUTOMATIC1111/Forge-compatible API
+- optional: `sd-webui-controlnet`
 
-Install Python dependencies:
+Install ComicFrame's Python dependencies:
 
 ```powershell
 py -m pip install -r requirements.txt
 ```
 
-For AUTOMATIC1111, API support is commonly enabled in `webui-user.bat` with:
+A1111 should normally be launched with API support, e.g.:
 
-```bat
-set COMMANDLINE_ARGS=--api
+```text
+--api
 ```
 
-The default endpoint is:
+The default API address is:
 
 ```text
 http://127.0.0.1:7860
@@ -104,54 +96,86 @@ run_comicframe_studio.bat
 Or directly:
 
 ```powershell
-py comicframe_studio_v1_3.py
+py app.py
 ```
 
 ## Recommended workflow
 
 1. Start Stable Diffusion WebUI.
 2. Launch ComicFrame Studio.
-3. Let **Sync WebUI** populate the checkpoint/sampler lists.
-4. Select the checkpoint and sampler you want.
-5. Choose a source video.
-6. Apply **Comic Punch** as a first test.
-7. Render 10–20 test frames.
-8. Compare the source and styled previews.
-9. Adjust style strength/prompt as needed.
-10. Run **FULL RENDER** when satisfied.
+3. Select the source video and project directory.
+4. Click **Sync WebUI**.
+5. Choose a checkpoint and sampler.
+6. Pick/apply a look preset.
+7. Leave inference at **1280 long edge** initially.
+8. Render a short test range.
+9. Inspect the live styled preview and `test_frames/`.
+10. Start the full render when satisfied.
 
-## Project output
+Project output includes:
 
 ```text
 frames/
 styled_frames/
 test_frames/
-_source_preview.jpg
 source_info.json
 render_settings.json
+comicframe_profile.json
 styled_silent.mp4
 FINAL_STYLED.mp4
 ```
 
-The original source video is never overwritten.
+## Good starting settings
 
-## Continuity
+The **Comic Punch** preset starts around:
 
-A fixed seed remains the default because the input frames already supply the motion. Reusing the seed encourages neighboring frames to make similar visual decisions.
+```text
+Steps:          28
+CFG:            6.5
+Style strength: 0.48
+Seed:           123456
+Seed behavior:  fixed
+Inference:      1280 long edge
+ControlNet:     off unless configured
+```
 
-The current renderer still processes frames independently, so temporal shimmer is expected to become the main technical problem once the style itself is strong enough. That is the next major development target.
+If the result is too close to the source, increase style strength gradually. If identity or geometry becomes unstable, reduce style strength.
+
+A fixed seed is recommended because neighboring source frames already provide motion; reusing the seed encourages similar stylistic decisions frame to frame.
+
+## ControlNet
+
+ControlNet is **optional**. ComicFrame works with ordinary `img2img` without it.
+
+For this project, Canny/Lineart ControlNet is useful when aggressive stylization begins changing room geometry, pose, or object edges. ComicFrame only enables it when the running WebUI exposes usable ControlNet models.
+
+If ControlNet is failing to load, keep it disabled and see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+## Resume behavior
+
+Full renders are resume-safe. Existing nontrivial styled frames are skipped, so closing ComicFrame or restarting the machine does not require beginning at frame 1 again.
+
+## Stable Diffusion errors
+
+If the WebUI returns `NansException` / `tensor with NaNs`, ComicFrame v1.4 reports practical recovery steps instead of a raw HTTP error. Start by lowering inference resolution before suppressing NaN checks.
+
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for the A1111/NumPy/MediaPipe/ControlNet issues encountered during real development testing.
+
+## Development
+
+CI installs the small ComicFrame dependency set and compiles every Python source file.
+
+Version history is tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## Roadmap
 
-- automatic original-vs-styled test-video assembly
-- temporal consistency / prior-frame conditioning
-- optical-flow-assisted guidance
+- temporal conditioning / optical-flow-assisted consistency
 - keyframe + propagation workflows
-- model-family compatibility hints (SD1.5 / SDXL / SD3.x)
-- proxy-resolution rendering + controlled upscale
-- ETA / throughput / GPU telemetry
+- built-in A/B comparison test video
+- stronger checkpoint-family guidance
+- render throughput / ETA telemetry
 - shot-aware processing
-- better preview scrubbing and frame comparison
+- optional AI upscaling rather than only Lanczos output scaling
 
 ## License
 
