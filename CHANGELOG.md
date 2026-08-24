@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.5 — graphic print intensity / LoRA style stack
+
+- Added `comicframe_fx.py`, a deterministic whole-frame finishing layer that runs after diffusion.
+- Added hard ink-edge reinforcement.
+- Added color posterization and stronger graphic contrast/saturation shaping.
+- Added shadow-weighted halftone dot screens.
+- Added controlled CMYK-like channel misregistration with deterministic frame cycling rather than random jitter.
+- Added subtle print grain.
+- Added **Graphic Print Finish** controls and global FX intensity in the desktop UI.
+- Added stronger presets, including **Graphic Shock · maximum print** and **Structure First · ControlNet test**.
+- Added A1111 LoRA discovery through `/sdapi/v1/loras`.
+- Added Style LoRA selection and weight controls; selected LoRAs are injected using normal A1111 prompt syntax.
+- Extended render manifests to record LoRA and all Graphic Print Finish settings for resume safety.
+- Defaulted v1.5 to 1024 long-edge inference for safer first tests on 12 GB SDXL systems.
+- Expanded negative prompting against invented machinery, transformed furniture, and circular-object hallucinations observed in real test footage.
+- Added a CI image-processing smoke test for the complete Graphic Print Finish stack.
+- Updated README with the intended SDXL + ControlNet + LoRA + deterministic print pipeline and a recommended next-test recipe.
+
 ## v1.4 — adaptive rendering / resilience
 
 - Added 1280, 1024, 768, and native inference modes.
