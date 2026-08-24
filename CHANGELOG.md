@@ -17,6 +17,7 @@
 - Expanded negative prompting against invented machinery, transformed furniture, and circular-object hallucinations observed in real test footage.
 - Added a CI image-processing smoke test for the complete Graphic Print Finish stack.
 - Updated README with the intended SDXL + ControlNet + LoRA + deterministic print pipeline and a recommended next-test recipe.
+- Fixed ControlNet discovery for A1111 installations where `sd-webui-controlnet` serves `/controlnet/*` normally but those routes are absent from `/openapi.json`. The canonical runtime now probes `/controlnet/version`, `/controlnet/model_list`, `/controlnet/module_list`, and `/controlnet/control_types` directly before falling back to route discovery.
 
 ## v1.4 — adaptive rendering / resilience
 
