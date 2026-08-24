@@ -26,7 +26,7 @@ v1.4 focuses on reliability and practical video rendering:
 - optional ControlNet integration
 - adaptive inference resolution
 - optional upscale back to source resolution
-- resume-safe long renders
+- profile-aware resume-safe long renders
 - actionable Stable Diffusion NaN diagnostics
 
 The stable launcher is now `app.py`; versioned implementation files can evolve without changing shortcuts or launch scripts.
@@ -121,6 +121,7 @@ test_frames/
 source_info.json
 render_settings.json
 comicframe_profile.json
+comicframe_test_profile.json
 styled_silent.mp4
 FINAL_STYLED.mp4
 ```
@@ -153,7 +154,9 @@ If ControlNet is failing to load, keep it disabled and see [TROUBLESHOOTING.md](
 
 ## Resume behavior
 
-Full renders are resume-safe. Existing nontrivial styled frames are skipped, so closing ComicFrame or restarting the machine does not require beginning at frame 1 again.
+Full renders are resume-safe **only when the render profile matches**. ComicFrame records the checkpoint, sampler, scheduler, prompts, strength, seed, ControlNet settings, inference mode, and output-scaling choice that created the frame set. If those settings change, resume is blocked rather than silently mixing incompatible frames into one video.
+
+Test renders behave differently by design: the requested test range is regenerated with the settings currently visible in the UI, so stale test frames do not masquerade as new results.
 
 ## Stable Diffusion errors
 
@@ -165,17 +168,7 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for the A1111/NumPy/MediaPipe/Contr
 
 CI installs the small ComicFrame dependency set and compiles every Python source file.
 
-Version history is tracked in [CHANGELOG.md](CHANGELOG.md).
-
-## Roadmap
-
-- temporal conditioning / optical-flow-assisted consistency
-- keyframe + propagation workflows
-- built-in A/B comparison test video
-- stronger checkpoint-family guidance
-- render throughput / ETA telemetry
-- shot-aware processing
-- optional AI upscaling rather than only Lanczos output scaling
+Version history is tracked in [CHANGELOG.md](CHANGELOG.md). Future work is tracked in [ROADMAP.md](ROADMAP.md).
 
 ## License
 
