@@ -19,28 +19,31 @@ The app preserves the full source frame and aspect ratio by default. A 1920x1080
 
 The first live v1 test confirmed that the extraction/render/reassembly architecture works. The initial default render was structurally stable but **far too weak stylistically**: at `0.30` denoise with a photoreal-oriented checkpoint and no selected ControlNet model, the result looked close to lightly repainted source footage rather than a strong comic animation treatment.
 
-### v1.1 ControlNet fix
+### v1.2 WebUI-driven discovery
 
-v1.1 keeps the same proven render pipeline but replaces the vague ControlNet refresh behavior with a real probe. The launcher now starts `comicframe_studio_v1_1.py` by default.
+v1.2 stops guessing which ControlNet API routes a particular WebUI build exposes.
 
-The probe checks A1111's extension/script APIs plus the canonical sd-webui-controlnet routes:
+Click **Discover WebUI** and ComicFrame Studio first asks the running Stable Diffusion server for:
 
 ```text
-/sdapi/v1/extensions
-/sdapi/v1/scripts
-/controlnet/version
-/controlnet/control_types
-/controlnet/model_list
-/controlnet/module_list
+/openapi.json
+/sdapi/v1/options
+/sdapi/v1/sd-models
 ```
 
-It now distinguishes these states instead of leaving a blank model dropdown:
+The OpenAPI document is then used to enumerate the **actual GET routes exposed by that exact WebUI instance**. ComicFrame searches those advertised routes for ControlNet/control-model and module/preprocessor inventories, queries the matching endpoints, and fills the ControlNet dropdowns from the returned data.
 
-- **ControlNet ready** — models/modules were detected and a Canny-compatible default is selected when possible.
-- **ControlNet detected, no models** — the extension is present but no usable model is exposed.
-- **ControlNet not detected** — A1111 is reachable but the ControlNet extension/API routes are absent or disabled.
+This also gives useful diagnostics:
 
-If ControlNet is enabled with no selected model, v1.1 blocks the render instead of silently pretending ControlNet is active. You can uncheck ControlNet to intentionally run a plain img2img baseline.
+- all Stable Diffusion checkpoints reported by the core WebUI API
+- the currently loaded checkpoint when available
+- every control-related API route advertised by the running server
+- the exact route selected for ControlNet model/module discovery
+- HTTP results for each discovery request
+
+Core Stable Diffusion checkpoints are shown for diagnostics only; they are **not incorrectly treated as ControlNet models**.
+
+If no ControlNet routes are advertised by `/openapi.json`, ComicFrame disables ControlNet and allows an intentional plain-img2img baseline. If control routes exist but their response shape cannot yet be parsed, the log prints those exact routes so support can be added without guessing.
 
 ## Requirements
 
@@ -75,7 +78,7 @@ The GUI defaults to:
 http://127.0.0.1:7860
 ```
 
-Forge and other WebUI variants may also work if they expose compatible `/sdapi/v1/*` endpoints.
+Forge and other WebUI variants may also work if they expose compatible API routes.
 
 ## Launch
 
@@ -91,13 +94,15 @@ Or directly:
 python comicframe_studio_v1_1.py
 ```
 
+(The compatibility-layer filename remains `v1_1` for now; the window/behavior is v1.2.)
+
 ## Recommended workflow
 
 1. Select a source video and project directory.
 2. Start the Stable Diffusion WebUI.
 3. Click **Test API**.
-4. Click **Probe ControlNet**.
-5. If ControlNet is available, choose a compatible model/module.
+4. Click **Discover WebUI**.
+5. Review the log and select the discovered ControlNet model/module if available.
 6. Render a short test range.
 7. Inspect `test_frames/`.
 8. When satisfied, click **FULL RENDER**.
@@ -147,7 +152,8 @@ Long renders are resume-safe. Existing nontrivial styled frames are skipped, so 
 
 - Named style presets and a simpler stylization-strength control
 - Built-in original-vs-styled test video generation
-- Better checkpoint/model discovery and compatibility feedback
+- Checkpoint selection from the discovered `/sdapi/v1/sd-models` inventory
+- Better model-family compatibility feedback (SD1.5 / SDXL / SD3.x)
 - Temporal conditioning / optical-flow-assisted consistency
 - Keyframe + propagation workflows
 - Optional proxy-resolution render and controlled upscale
