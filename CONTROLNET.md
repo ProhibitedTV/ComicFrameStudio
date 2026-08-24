@@ -112,7 +112,15 @@ Avoid running all of SDXL in full precision unless it is actually needed. Flags 
 --precision full --no-half --no-half-vae
 ```
 
-consume substantially more VRAM. If half precision gives a UNet NaN error, try A1111's **Upcast cross attention layer to float32** setting first. If full precision is still required, use ComicFrame's 768 or 1024 long-edge inference mode.
+consume substantially more VRAM.
+
+If half precision gives a UNet NaN error, try these before full `--no-half`:
+
+1. A1111 **Upcast cross attention layer to float32** setting.
+2. `--upcast-sampling`, which A1111 documents as giving behavior similar to `--no-half` with better performance and lower memory use.
+3. ComicFrame 1024 or 768 long-edge inference.
+
+If full precision is still required, stay at the lower ComicFrame inference modes.
 
 ## 6. What Canny ControlNet is doing here
 
