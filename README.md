@@ -2,7 +2,7 @@
 
 ComicFrame Studio is a local desktop GUI for turning ordinary video into frame-accurate AI-stylized animation through an AUTOMATIC1111/Forge-compatible Stable Diffusion WebUI API.
 
-The project is built around an inspectable pipeline:
+The pipeline is intentionally inspectable:
 
 1. Probe the source video with `ffprobe`.
 2. Extract every source frame with `ffmpeg`.
@@ -27,20 +27,31 @@ v1.4 focuses on reliability and practical video rendering:
 - adaptive inference resolution
 - optional upscale back to source resolution
 - profile-aware resume-safe long renders
-- actionable Stable Diffusion NaN diagnostics
+- actionable Stable Diffusion NaN and CUDA out-of-memory diagnostics
 
-The stable launcher is now `app.py`; versioned implementation files can evolve without changing shortcuts or launch scripts.
+## Consolidated source layout
+
+Runtime code no longer uses version-numbered implementation filenames.
+
+```text
+app.py                 stable launcher / entrypoint
+comicframe_app.py      current render policy and v1.4 behavior
+comicframe_ui.py       desktop UI, WebUI discovery, previews, presets
+comicframe_studio.py   stable frame/video/API core
+```
+
+Historical behavior belongs in `CHANGELOG.md`, not in a chain of `*_v1_1.py`, `*_v1_3.py`, etc.
 
 ## Why inference resolution is separate from output resolution
 
-A 1920x1080 source no longer has to be diffused natively at 1920x1080.
+A 1920x1080 source does not need to be diffused natively at 1920x1080.
 
-The recommended v1.4 workflow is:
+Recommended workflow:
 
 ```text
 1920x1080 source frame
         ↓
-resize the complete frame to 1280x720
+resize the complete frame to 1280x720 (or 1024/768 long edge)
         ↓
 Stable Diffusion img2img
         ↓
@@ -49,7 +60,7 @@ optional Lanczos upscale to 1920x1080
 final video
 ```
 
-Nothing is cropped and the complete composition is preserved. Lower inference resolution substantially reduces GPU load and helps avoid numerical failures in SDXL.
+Nothing is cropped and the complete composition is preserved. Lower inference resolution substantially reduces GPU load and helps avoid SDXL numerical and memory failures.
 
 Available modes:
 
@@ -59,6 +70,8 @@ Available modes:
 768 long edge · emergency / low VRAM
 Source / native · heavy
 ```
+
+For a 12 GB GPU running SDXL, **1024 long edge is the safer first render**. Move to 1280 after the pipeline is stable.
 
 ## Requirements
 
@@ -73,7 +86,7 @@ Install ComicFrame's Python dependencies:
 py -m pip install -r requirements.txt
 ```
 
-A1111 should normally be launched with API support, e.g.:
+A1111 should normally be launched with API support:
 
 ```text
 --api
@@ -107,10 +120,11 @@ py app.py
 4. Click **Sync WebUI**.
 5. Choose a checkpoint and sampler.
 6. Pick/apply a look preset.
-7. Leave inference at **1280 long edge** initially.
+7. Start at **1024 long edge** on a 12 GB SDXL setup, or 1280 if memory headroom is known-good.
 8. Render a short test range.
 9. Inspect the live styled preview and `test_frames/`.
-10. Start the full render when satisfied.
+10. Enable ControlNet only after plain img2img renders correctly.
+11. Start the full render when satisfied.
 
 Project output includes:
 
@@ -136,11 +150,11 @@ CFG:            6.5
 Style strength: 0.48
 Seed:           123456
 Seed behavior:  fixed
-Inference:      1280 long edge
-ControlNet:     off unless configured
+Inference:      1024–1280 long edge
+ControlNet:     off until configured
 ```
 
-If the result is too close to the source, increase style strength gradually. If identity or geometry becomes unstable, reduce style strength.
+If the result is too close to the source, increase style strength gradually. If identity or geometry becomes unstable, reduce style strength or enable structural guidance.
 
 A fixed seed is recommended because neighboring source frames already provide motion; reusing the seed encourages similar stylistic decisions frame to frame.
 
@@ -148,9 +162,15 @@ A fixed seed is recommended because neighboring source frames already provide mo
 
 ControlNet is **optional**. ComicFrame works with ordinary `img2img` without it.
 
-For this project, Canny/Lineart ControlNet is useful when aggressive stylization begins changing room geometry, pose, or object edges. ComicFrame only enables it when the running WebUI exposes usable ControlNet models.
+For this project, Canny ControlNet is useful when aggressive stylization begins changing room geometry, pose, or object edges.
 
-If ControlNet is failing to load, keep it disabled and see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+For SDXL, the recommended first model is:
+
+```text
+diffusers_xl_canny_mid.safetensors
+```
+
+Use the SMALL variant if VRAM is tight. Full installation instructions, download sources, model locations, and first settings are in [CONTROLNET.md](CONTROLNET.md).
 
 ## Resume behavior
 
@@ -160,9 +180,12 @@ Test renders behave differently by design: the requested test range is regenerat
 
 ## Stable Diffusion errors
 
-If the WebUI returns `NansException` / `tensor with NaNs`, ComicFrame v1.4 reports practical recovery steps instead of a raw HTTP error. Start by lowering inference resolution before suppressing NaN checks.
+ComicFrame turns common backend failures into actionable errors:
 
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for the A1111/NumPy/MediaPipe/ControlNet issues encountered during real development testing.
+- `NansException` / tensor with NaNs → lower inference resolution, try upcast cross attention, then consider precision changes.
+- `CUDA out of memory` → lower inference resolution and avoid full-precision SDXL unless required.
+
+For 8–16 GB SDXL systems, `--medvram-sdxl` is a useful A1111 option. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ## Development
 
