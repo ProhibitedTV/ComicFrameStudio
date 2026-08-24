@@ -17,4 +17,22 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q .
       - name: Import canonical runtime
-        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio"
+        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio, comicframe_fx"
+      - name: Smoke-test graphic print finish
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageDraw
+          from comicframe_fx import GraphicFXSettings, apply_graphic_fx
+
+          path = Path('/tmp/comicframe_fx_smoke.png')
+          im = Image.new('RGB', (320, 180), 'white')
+          draw = ImageDraw.Draw(im)
+          draw.rectangle((30, 30, 150, 150), fill=(35, 90, 220))
+          draw.ellipse((170, 35, 285, 150), fill=(230, 70, 90))
+          im.save(path)
+          apply_graphic_fx(path, GraphicFXSettings(enabled=True, intensity=0.85), frame_number=1)
+          out = Image.open(path)
+          assert out.size == (320, 180)
+          assert out.mode == 'RGB'
+          PY
