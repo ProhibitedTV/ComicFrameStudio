@@ -13,11 +13,11 @@ from comicframe_hardening import (
     analysis_signature,
     canonical_frame_signature,
     frame_sequence_report,
-    prune_shot_memory_ranges,
     reset_project_for_new_source,
     sampled_file_sha256,
     trim_cache_directory,
 )
+from comicframe_manifest_safety import prune_shot_memory_ranges_safe, safe_leaf_path
 
 
 class FakeVar:
@@ -29,6 +29,35 @@ class FakeVar:
 
     def set(self, value):
         self.value = value
+
+
+class FakeWidget:
+    def __init__(self, widget_class="TFrame", state="normal", text="", children=None):
+        self.widget_class = widget_class
+        self.state = state
+        self.text = text
+        self.children = list(children or [])
+        self.exists = True
+
+    def winfo_children(self):
+        return self.children
+
+    def winfo_class(self):
+        return self.widget_class
+
+    def cget(self, key):
+        if key == "state":
+            return self.state
+        if key == "text":
+            return self.text
+        raise KeyError(key)
+
+    def configure(self, **kwargs):
+        if "state" in kwargs:
+            self.state = kwargs["state"]
+
+    def winfo_exists(self):
+        return self.exists
 
 
 def timeline() -> dict:
@@ -153,12 +182,76 @@ def test_shot_memory_pruning_is_selective(tmp_path: Path):
         anchors.append({"frame": frame, "shot": 1 if frame <= 5 else 2, "file": name})
     (memory / "manifest.json").write_text(json.dumps({"version": "2.0", "anchors": anchors}))
 
-    removed = prune_shot_memory_ranges(tmp_path, [(1, 5)])
+    removed = prune_shot_memory_ranges_safe(tmp_path, [(1, 5)])
     assert removed == 2
     data = json.loads((memory / "manifest.json").read_text())
     assert [entry["frame"] for entry in data["anchors"]] == [6, 9]
     assert not (refs / "anchor_1.png").exists()
     assert (refs / "anchor_6.png").exists()
+
+
+def test_manifest_leaf_path_rejects_escape_and_windows_syntax(tmp_path: Path):
+    root = tmp_path / "refs"
+    root.mkdir()
+    assert safe_leaf_path(root, "ref_abc123.png") == root / "ref_abc123.png"
+    for value in ("../outside.txt", "..\\outside.txt", "/tmp/outside", "C:\\outside.txt", "x/y.png", "x\\y.png"):
+        assert safe_leaf_path(root, value) is None
+
+
+def test_malicious_shot_memory_filename_cannot_delete_outside_project(tmp_path: Path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("do not touch")
+    memory = tmp_path / "project" / "shot_memory" / "full"
+    refs = memory / "references"
+    refs.mkdir(parents=True)
+    (memory / "manifest.json").write_text(json.dumps({
+        "version": "2.0",
+        "anchors": [{"frame": 3, "shot": 1, "file": "../../../../outside.txt"}],
+    }))
+
+    assert prune_shot_memory_ranges_safe(tmp_path / "project", [(1, 5)]) == 1
+    assert outside.read_text() == "do not touch"
+
+
+def test_subject_loader_drops_unsafe_ids_and_reference_paths(tmp_path: Path):
+    subjects_root = tmp_path / "subjects"
+    valid_root = subjects_root / "abc123"
+    valid_root.mkdir(parents=True)
+    valid_ref = valid_root / "ref_good.png"
+    # A real image is needed because the loader content-hashes accepted references.
+    from PIL import Image
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(valid_ref)
+    registry = {
+        "version": "2.6",
+        "subjects": [
+            {
+                "id": "abc123",
+                "name": "Good",
+                "type": "Other",
+                "references": [
+                    {"id": "refgood", "file": "ref_good.png", "sha256": "", "source_shot": 1, "source_frame": 1},
+                    {"id": "evilref", "file": "../../outside.png", "sha256": ""},
+                ],
+            },
+            {"id": "../../evil", "name": "Bad", "type": "Other", "references": []},
+        ],
+    }
+    subjects_root.mkdir(exist_ok=True)
+    (subjects_root / "subjects.json").write_text(json.dumps(registry))
+
+    app = object.__new__(ComicFrameStudioApp)
+    app._subjects = {"version": "2.6", "subjects": []}
+    app._subject_loaded_root = None
+    app._log = lambda _message: None
+    app.project_paths = lambda: {
+        "root": tmp_path,
+        "subjects_root": subjects_root,
+        "subjects_registry": subjects_root / "subjects.json",
+    }
+
+    loaded = ComicFrameStudioApp._load_subjects(app, force=True)
+    assert [subject["id"] for subject in loaded["subjects"]] == ["abc123"]
+    assert [ref["file"] for ref in loaded["subjects"][0]["references"]] == ["ref_good.png"]
 
 
 def test_flow_cache_gc_bounds_files_and_bytes(tmp_path: Path):
@@ -224,6 +317,27 @@ def test_final_dimensions_are_explicit_and_even():
     assert ComicFrameStudioApp._hardening_final_dimensions(app, {"width": 1921, "height": 1081}) == (1024, 576)
     app.upscale_to_source_var.set(True)
     assert ComicFrameStudioApp._hardening_final_dimensions(app, {"width": 1921, "height": 1081}) == (1920, 1080)
+
+
+def test_render_job_locks_interactive_controls_but_keeps_stop_live():
+    run = FakeWidget("TFrame", children=[
+        FakeWidget("TButton", state="normal", text="ANALYZE + RENDER"),
+        FakeWidget("TButton", state="normal", text="STOP"),
+        FakeWidget("TCombobox", state="readonly", text=""),
+    ])
+    app = object.__new__(ComicFrameStudioApp)
+    app.left = run
+    app._hardening_job_widget_states = []
+
+    ComicFrameStudioApp._hardening_lock_job_controls(app)
+    assert run.children[0].state == "disabled"
+    assert run.children[1].state == "normal"
+    assert run.children[2].state == "disabled"
+
+    ComicFrameStudioApp._hardening_unlock_job_controls(app)
+    assert run.children[0].state == "normal"
+    assert run.children[1].state == "normal"
+    assert run.children[2].state == "readonly"
 
 
 def test_audit_did_not_add_another_feature_mixin():
