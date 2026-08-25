@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Stable ComicFrame Studio entrypoint."""
+import json
+
 from comicframe_app import ComicFrameStudioApp as BaseComicFrameStudioApp
 from comicframe_artistic import ArtisticExpansionMixin
 from comicframe_controlnet import DirectControlNetProbeMixin
@@ -47,6 +49,18 @@ class ComicFrameStudioApp(
                         pass
         except Exception:
             pass
+
+    @staticmethod
+    def _profile_without_director(profile: dict) -> dict:
+        """Ignore UI-only v2.4 metadata when checking render-cache compatibility."""
+        normalized = json.loads(json.dumps(profile))
+        normalized.pop("shot_director", None)
+        normalized.pop("reference_lock", None)
+        normalized.pop("workspace", None)
+        # v2.4 is intentionally a workspace/UX generation over the v2.3 render
+        # engine, so the version label alone must not invalidate reusable frames.
+        normalized.pop("app_version", None)
+        return normalized
 
     def _render_profile(self) -> dict:
         profile = super()._render_profile()
