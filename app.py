@@ -9,6 +9,7 @@ from comicframe_preflight import ControlNetPreflightMixin
 from comicframe_shot_memory import ShotMemoryMixin
 from comicframe_styles import StylePackMixin
 from comicframe_video_lock import ControlNetFirstVideoMixin
+from comicframe_webui_contract import WebUIContractMixin
 
 
 class ComicFrameStudioApp(
@@ -20,13 +21,14 @@ class ComicFrameStudioApp(
     ControlNetFirstVideoMixin,
     StylePackMixin,
     DirectControlNetProbeMixin,
+    WebUIContractMixin,
     BaseComicFrameStudioApp,
 ):
-    """Canonical runtime with shot memory, optical flow, ControlNet and artistic styles."""
+    """Canonical runtime with hardened WebUI contracts and full v2 continuity stack."""
 
     def __init__(self):
         super().__init__()
-        self.title("ComicFrame Studio 2.0 · Shot Memory + Optical Flow")
+        self.title("ComicFrame Studio 2.1 · Hardened WebUI Contract + Shot Memory")
 
 
 def main():
