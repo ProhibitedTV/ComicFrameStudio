@@ -9,6 +9,11 @@ import requests
 
 class ControlNetPreflightMixin:
     @staticmethod
+    def _looks_sdxl(name: str) -> bool:
+        """Recognize common SDXL naming conventions such as JuggernautXL."""
+        return "xl" in (name or "").lower()
+
+    @staticmethod
     def _inventory_values(data: Any, *keys: str) -> list[str]:
         if isinstance(data, list):
             raw = data
@@ -32,6 +37,44 @@ class ControlNetPreflightMixin:
             if value and value.lower() not in {"none", "none [none]"} and value not in out:
                 out.append(value)
         return out
+
+    def _probe_gpu_memory(self):
+        """Apply a conservative inference profile from A1111's CUDA memory report."""
+        try:
+            response = requests.get(f"{self.api_url()}/sdapi/v1/memory", timeout=15)
+            if not response.ok:
+                return
+            data = response.json()
+            total = None
+            if isinstance(data, dict):
+                cuda = data.get("cuda")
+                if isinstance(cuda, dict):
+                    system = cuda.get("system")
+                    if isinstance(system, dict):
+                        candidate = system.get("total")
+                        if isinstance(candidate, (int, float)) and candidate > 0:
+                            total = int(candidate)
+            if not total:
+                return
+
+            gib = total / (1024 ** 3)
+            self._detected_vram_gb = gib
+            if gib < 8.0:
+                self.control_low_vram_var.set(True)
+                self.inference_mode_var.set("768 long edge · emergency / low VRAM")
+                self.gpu_status_var.set(
+                    f"GPU VRAM detected: {gib:.1f} GiB · low-VRAM ControlNet ON · inference forced to 768"
+                )
+            else:
+                self.control_low_vram_var.set(False)
+                if self.inference_mode_var.get().startswith("Source"):
+                    self.inference_mode_var.set("1024 long edge · fast / stable")
+                self.gpu_status_var.set(
+                    f"GPU VRAM detected: {gib:.1f} GiB · RTX 3060-class profile · 1024 recommended"
+                )
+            self._log(f"GPU memory probe: {gib:.1f} GiB VRAM")
+        except Exception as exc:
+            self._log(f"GPU memory probe skipped: {exc}")
 
     def _direct_controlnet_inventory(self) -> tuple[list[str], list[str]]:
         url = self.api_url()
