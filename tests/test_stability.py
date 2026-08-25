@@ -4,9 +4,10 @@ from collections import OrderedDict
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from comicframe_manifest_safety import prune_shot_memory_ranges_safe, safe_leaf_path
-from comicframe_media import FULL_FINGERPRINT_ALGO, full_file_sha256
+from comicframe_media import FULL_FINGERPRINT_ALGO, full_file_sha256, validate_png
 from comicframe_stability import (
     REFERENCE_CACHE_MAX_ENTRIES,
     ComicFrameStudioApp,
@@ -174,6 +175,19 @@ def test_shot_memory_root_symlink_is_refused_without_touching_target(tmp_path: P
     with pytest.raises(RuntimeError, match="safely confined"):
         prune_shot_memory_ranges_safe(project, [(1, 10)])
     assert sentinel.read_text() == "keep"
+
+
+def test_frame_leaf_symlink_is_rejected_without_opening_target(tmp_path: Path):
+    real = tmp_path / "real.png"
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(real)
+    linked = tmp_path / "frame_000001.png"
+    try:
+        linked.symlink_to(real)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    ok, reason = validate_png(linked)
+    assert ok is False
+    assert reason == "symlink"
 
 
 def test_windows_device_names_are_not_valid_manifest_leaves(tmp_path: Path):
