@@ -138,6 +138,8 @@ jobs:
 
           class Harness(ProjectWorkspaceMixin, FakeBase):
               def _workspace_refresh_all(self): pass
+              def _workspace_refresh_selected(self): pass
+              def after(self, _delay, callback): callback()
 
           obj = object.__new__(Harness)
           old = {'shots': [{'id': 1, 'style': 'Clean Graphic Novel'}]}
