@@ -189,6 +189,10 @@ class ComicFrameStudioApp(V29ComicFrameStudioApp):
             # the process must not keep a timeline/subject plan from the old bytes.
             self._stability_reset_memory("source bytes changed in the current project")
             self._stability_context = self._stability_context_key()
+            paths = self.project_paths()
+            self._hardening_source_info = dict(metadata)
+            self._hardening_source_key = (str(paths["root"].resolve()), *runtime_source_key(video))
+            self._audit2_timing = load_json(paths["source_timing"])
         return metadata
 
     def _stability_assert_source_unchanged(self) -> None:
