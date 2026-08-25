@@ -1,6 +1,6 @@
 # Senior Engineering Shakedown — v2.8 Runtime Hardening
 
-This audit treats `app.py` as the canonical product boundary and reviews the accumulated v1.x/v2.x cooperative-mixin stack for correctness, resume safety, I/O cost, cache growth, and failure recovery.
+This audit treats `app.py` as the canonical product boundary and reviews the accumulated v1.x/v2.x cooperative-mixin stack for correctness, resume safety, I/O cost, cache growth, persisted-input safety, and failure recovery.
 
 ## Fixed in v2.8
 
@@ -11,7 +11,7 @@ Previous behavior skipped extraction whenever `frames/` contained anything. That
 - an interrupted extraction left a partial frame sequence that was accepted as complete;
 - reusing a project directory with another source video could keep stale extracted/styled frames.
 
-v2.8 records a source-content fingerprint and actual extracted frame count in `source_info.json`, verifies an exact contiguous `frame_000001.png ... frame_N.png` sequence, rebuilds incomplete source frames, and clears ComicFrame-derived project state when source content changes.
+v2.8 records a bounded content fingerprint and actual extracted frame count in `source_info.json`, verifies an exact contiguous `frame_000001.png ... frame_N.png` sequence, rebuilds incomplete source frames, and clears ComicFrame-derived project state when source content changes.
 
 Pre-v2.8 projects are migrated without throwing away work when their stored dimensions/FPS/duration and extracted sequence are internally consistent.
 
@@ -68,6 +68,18 @@ Changing automatic clustering thresholds/groups created new deterministic `auto_
 
 A stale extra frame and a missing expected frame could pass a simple `len(styled) >= len(source)` check. v2.8 requires the styled frame-number sequence to exactly match the source frame-number sequence and encodes exactly that many frames.
 
+### 11. Persisted manifest paths were trusted too far
+
+Subject IDs/reference filenames and Shot Memory anchor filenames originate in ComicFrame-generated JSON, but project folders can be copied, shared, or hand-edited. Raw path joining meant a crafted `../` value or escaping symlink could point outside the project.
+
+v2.8 treats those values as untrusted leaf components. Subject/reference/anchor access is confined to the expected project directory, malformed subject IDs are dropped/quarantined, and selective Shot Memory cleanup will never follow a manifest filename outside `shot_memory/full/references`.
+
+### 12. Render configuration could be changed while a worker was running
+
+The worker guard prevented starting a second job, but the normal UI controls stayed live. A treatment, performance mode, subject, or other setting could therefore be changed while later frames of the same render were still being produced.
+
+v2.8 disables interactive configuration controls for the lifetime of a worker and restores each control's original state afterward. **STOP remains enabled.** This keeps a single render job internally consistent without removing emergency cancellation.
+
 ## Architectural debt deliberately not papered over
 
 ### Cooperative mixin depth
@@ -87,11 +99,11 @@ and leave Tk widgets as a thin controller/view layer.
 
 ### Tk state is still used as runtime configuration
 
-Several rendering layers temporarily read/set Tk variables from worker-driven code. Tkinter normally marshals calls while the main loop is alive, but UI variables are still the wrong long-term configuration boundary. A future refactor should snapshot an immutable render configuration before starting a job and pass it through the pipeline instead of using widgets as mutable runtime state.
+v2.8 prevents user-driven mid-job changes, but several rendering layers still read/temporarily set Tk variables from worker-driven code. Tk variables are the wrong long-term configuration boundary. A future refactor should snapshot an immutable render configuration before starting a job and pass it through the pipeline instead of using widgets as the mutable configuration store.
 
 ### CI is broad but fragmented
 
-The repository has strong smoke coverage across separate workflows, but much of it is inline Python embedded in YAML. Moving those checks into `tests/` with pytest would reduce duplication and make local regression runs substantially easier.
+The repository has strong smoke coverage across separate workflows, but much of it is inline Python embedded in YAML. v2.8 starts a normal `tests/` tree with pytest; migrating the historical suites there would reduce duplication and make local regression runs substantially easier.
 
 ### Automatic subject clustering is conservative, not semantic recognition
 
