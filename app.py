@@ -2,7 +2,9 @@
 """Stable ComicFrame Studio entrypoint."""
 import json
 import shutil
+import threading
 from pathlib import Path
+from tkinter import messagebox
 
 from comicframe_app import ComicFrameStudioApp as BaseComicFrameStudioApp
 from comicframe_artistic import ArtisticExpansionMixin
@@ -25,19 +27,28 @@ from comicframe_hardening import (
     legacy_source_compatible,
     load_json,
     project_has_derived_state,
-    prune_shot_memory_ranges,
     reset_project_for_new_source,
     runtime_source_key,
     source_fingerprint,
     touch,
     trim_cache_directory,
 )
+from comicframe_manifest_safety import (
+    prune_shot_memory_ranges_safe,
+    safe_leaf_path,
+    safe_subject_root,
+)
 from comicframe_optical_flow import OpticalFlowTemporalMixin
 from comicframe_preflight import ControlNetPreflightMixin
 from comicframe_reference_lock import ReferenceLockMixin
 from comicframe_shot_memory import ShotMemoryMixin
 from comicframe_styles import StylePackMixin
-from comicframe_subjects import SubjectLibraryMixin
+from comicframe_subjects import (
+    SUBJECT_TYPES,
+    SUBJECT_VERSION,
+    SubjectLibraryMixin,
+    _sha256_file,
+)
 from comicframe_video_lock import ControlNetFirstVideoMixin
 from comicframe_webui_contract import WebUIContractMixin
 import comicframe_workspace as workspace_module
@@ -78,6 +89,7 @@ class ComicFrameStudioApp(
         self._hardening_source_info = None
         self._hardening_force_analysis = False
         self._hardening_flow_calls = 0
+        self._hardening_job_widget_states = []
         super().__init__()
         self.title("ComicFrame Studio 2.8 · Runtime Hardening")
         try:
@@ -91,6 +103,70 @@ class ComicFrameStudioApp(
         except Exception:
             pass
 
+    # ---------- Worker/UI state safety ----------
+
+    @staticmethod
+    def _hardening_descendants(widget):
+        for child in widget.winfo_children():
+            yield child
+            yield from ComicFrameStudioApp._hardening_descendants(child)
+
+    @staticmethod
+    def _hardening_is_stop_widget(widget) -> bool:
+        try:
+            return str(widget.cget("text") or "").strip().upper() == "STOP"
+        except Exception:
+            return False
+
+    def _hardening_lock_job_controls(self) -> None:
+        """Prevent a render plan/configuration from being mutated mid-job."""
+        self._hardening_job_widget_states = []
+        root = getattr(self, "left", None)
+        if root is None:
+            return
+        interactive = {
+            "TButton", "TCheckbutton", "TCombobox", "TSpinbox", "TEntry",
+            "Button", "Checkbutton", "Combobox", "Spinbox", "Entry", "Text",
+        }
+        for widget in self._hardening_descendants(root):
+            try:
+                if widget.winfo_class() not in interactive or self._hardening_is_stop_widget(widget):
+                    continue
+                previous = str(widget.cget("state"))
+                self._hardening_job_widget_states.append((widget, previous))
+                widget.configure(state="disabled")
+            except Exception:
+                continue
+
+    def _hardening_unlock_job_controls(self) -> None:
+        saved = self._hardening_job_widget_states
+        self._hardening_job_widget_states = []
+        for widget, state in saved:
+            try:
+                if widget.winfo_exists():
+                    widget.configure(state=state)
+            except Exception:
+                pass
+
+    def _run_worker(self, target):
+        if self.worker and self.worker.is_alive():
+            messagebox.showwarning("ComicFrame Studio", "A job is already running.")
+            return
+        self.stop_event.clear()
+        self._hardening_lock_job_controls()
+
+        def wrapped():
+            try:
+                target()
+            finally:
+                try:
+                    self.after(0, self._hardening_unlock_job_controls)
+                except Exception:
+                    pass
+
+        self.worker = threading.Thread(target=wrapped, daemon=True)
+        self.worker.start()
+
     # ---------- Source identity / extraction safety ----------
 
     def _extract_frames(self):
@@ -98,8 +174,8 @@ class ComicFrameStudioApp(
         if not video.exists():
             raise FileNotFoundError("Choose a valid source video first.")
 
-        runtime_key = runtime_source_key(video)
         paths = self.project_paths()
+        runtime_key = (str(paths["root"].resolve()), *runtime_source_key(video))
         cached = self._hardening_source_info
         if self._hardening_source_key == runtime_key and isinstance(cached, dict):
             expected = int(cached.get("frame_count") or 0) or None
@@ -113,8 +189,7 @@ class ComicFrameStudioApp(
 
         info = self._probe_video(video)
         fingerprint = source_fingerprint(video)
-        meta_path = paths["meta"]
-        old_meta = load_json(meta_path)
+        old_meta = load_json(paths["meta"])
         old_fingerprint = str(old_meta.get("source_fingerprint") or "")
 
         source_changed = False
@@ -124,8 +199,16 @@ class ComicFrameStudioApp(
             else:
                 source_changed = not legacy_source_compatible(old_meta, info, paths["frames"])
         elif project_has_derived_state(paths["root"]):
-            # A generated project with no source metadata is not safe to resume.
-            source_changed = bool(frame_numbers(paths["frames"]) or (paths["root"] / "comicframe_timeline.json").exists())
+            # The standard empty directories are created above and are harmless.
+            # Actual generated content without source metadata is not safe to bind
+            # to a newly selected source by guessing.
+            source_changed = bool(
+                frame_numbers(paths["frames"])
+                or frame_numbers(paths["styled"])
+                or (paths["root"] / "comicframe_timeline.json").exists()
+                or (paths["root"] / "subjects" / "subjects.json").exists()
+                or paths["final"].exists()
+            )
 
         if source_changed:
             self._log("Source content changed for this project directory; clearing ComicFrame-derived state before extraction.")
@@ -248,6 +331,86 @@ class ComicFrameStudioApp(
             pass
         return timeline
 
+    # ---------- Persisted manifest path confinement ----------
+
+    def _subject_root(self, subject_id: str) -> Path:
+        return safe_subject_root(self.project_paths()["subjects_root"], str(subject_id))
+
+    def _load_subjects(self, force: bool = False):
+        """Load only direct-child subject/reference paths from a persisted project."""
+        path = self._subject_registry_path()
+        root_key = str(path.parent.resolve())
+        if not force and self._subject_loaded_root == root_key:
+            return self._subjects
+        data = {"version": SUBJECT_VERSION, "subjects": []}
+        if path.exists():
+            try:
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict) and isinstance(loaded.get("subjects"), list):
+                    data = loaded
+            except Exception as exc:
+                self._log(f"Subject Library registry ignored: {exc}")
+
+        changed = False
+        clean_subjects = []
+        seen_ids = set()
+        subjects_root = self.project_paths()["subjects_root"]
+        for raw in data.get("subjects", []):
+            if not isinstance(raw, dict):
+                changed = True
+                continue
+            sid = str(raw.get("id") or "").strip()
+            if not sid or sid in seen_ids or safe_leaf_path(subjects_root, sid) is None:
+                changed = True
+                continue
+            seen_ids.add(sid)
+            subject = {
+                "id": sid,
+                "name": str(raw.get("name") or "Subject").strip() or "Subject",
+                "type": str(raw.get("type") or "Other") if str(raw.get("type") or "Other") in SUBJECT_TYPES else "Other",
+                "references": [],
+            }
+            for ref in raw.get("references", []):
+                if not isinstance(ref, dict):
+                    changed = True
+                    continue
+                rid = str(ref.get("id") or "").strip()
+                filename = str(ref.get("file") or "").strip()
+                ref_path = safe_leaf_path(self._subject_root(sid), filename)
+                if not rid or safe_leaf_path(self._subject_root(sid), rid) is None or ref_path is None or not ref_path.exists():
+                    changed = True
+                    continue
+                current_hash = _sha256_file(ref_path)
+                if current_hash != str(ref.get("sha256") or ""):
+                    changed = True
+                subject["references"].append({
+                    "id": rid,
+                    "file": filename,
+                    "sha256": current_hash,
+                    "source_shot": int(ref.get("source_shot") or 0),
+                    "source_frame": int(ref.get("source_frame") or 0),
+                })
+            clean_subjects.append(subject)
+
+        data = {"version": SUBJECT_VERSION, "subjects": clean_subjects}
+        self._subjects = data
+        self._subject_loaded_root = root_key
+        if changed:
+            self._save_subjects()
+        return data
+
+    def _subject_reference_path(self, subject, reference):
+        if not subject or not reference:
+            return None
+        root = self._subject_root(str(subject.get("id") or ""))
+        path = safe_leaf_path(root, str(reference.get("file") or ""))
+        return path if path is not None and path.exists() else None
+
+    def _anchor_path(self, entry):
+        name = str((entry or {}).get("file") or "").strip()
+        path = safe_leaf_path(self._shot_memory_root() / "references", name)
+        return path if path is not None and path.exists() else None
+
     # ---------- Canonical selective invalidation ----------
 
     def _invalidate_changed_timeline_frames(self, old, new) -> int:
@@ -264,7 +427,7 @@ class ComicFrameStudioApp(
                     candidate.unlink()
                     removed += 1
             ranges = affected_shot_ranges(old, new, changed_frames)
-            pruned = prune_shot_memory_ranges(self.project_paths()["root"], ranges)
+            pruned = prune_shot_memory_ranges_safe(self.project_paths()["root"], ranges)
             if changed_frames:
                 self._log(
                     f"Runtime hardening: one-pass dependency invalidation found {len(changed_frames)} changed frame(s); "
@@ -277,7 +440,7 @@ class ComicFrameStudioApp(
         shot = self._selected_shot()
         if shot:
             start, end = int(shot["start"]), int(shot["end"])
-            prune_shot_memory_ranges(self.project_paths()["root"], [(start, end)])
+            prune_shot_memory_ranges_safe(self.project_paths()["root"], [(start, end)])
         return super()._workspace_rerender_shot_job()
 
     # ---------- Persistent flow-cache bound ----------
@@ -426,10 +589,12 @@ class ComicFrameStudioApp(
         profile = super()._render_profile()
         profile["runtime_hardening"] = {
             "version": HARDENING_VERSION,
-            "source_fingerprint": "sampled first/middle/last content",
+            "source_fingerprint": "nine distributed content samples + file size",
             "canonical_invalidation": True,
             "bounded_flow_cache_bytes": self.FLOW_CACHE_MAX_BYTES,
             "explicit_final_dimensions": True,
+            "manifest_path_confinement": True,
+            "job_configuration_lock": True,
         }
         profile["app_version"] = "2.8"
         return profile
