@@ -66,19 +66,17 @@ def runtime_source_key(path: Path) -> tuple[str, int, int]:
 
 
 def sampled_file_sha256(path: Path, sample_bytes: int = 1024 * 1024) -> str:
-    """Strong-enough source identity without hashing an entire large video.
+    """Strong source identity without reading an entire potentially huge video.
 
-    Size plus first/middle/last 1 MiB catches normal replacement/edit cases while
-    keeping startup I/O bounded for large source videos.
+    Size plus nine evenly distributed samples (including both ends) makes normal
+    source replacement/edit mistakes extremely unlikely to alias while bounding
+    startup I/O to roughly 9 MiB for large files.
     """
     path = Path(path)
     size = int(path.stat().st_size)
     sample_bytes = max(4096, int(sample_bytes))
-    offsets = sorted({
-        0,
-        max(0, size // 2 - sample_bytes // 2),
-        max(0, size - sample_bytes),
-    })
+    span = max(0, size - sample_bytes)
+    offsets = sorted({int(round(span * index / 8.0)) for index in range(9)})
     digest = hashlib.sha256()
     digest.update(f"size:{size}\n".encode("ascii"))
     with path.open("rb") as handle:
@@ -120,9 +118,9 @@ def frame_sequence_report(directory: Path, expected_count: int | None = None) ->
     contiguous = bool(numbers) and numbers == list(range(1, numbers[-1] + 1))
     if expected_count is not None:
         expected_count = max(0, int(expected_count))
-        expected = list(range(1, expected_count + 1))
-        exact = numbers == expected
-        missing = [n for n in expected if n not in set(numbers)][:20]
+        exact = numbers == list(range(1, expected_count + 1))
+        number_set = set(numbers)
+        missing = [n for n in range(1, expected_count + 1) if n not in number_set][:20]
         extras = [n for n in numbers if n > expected_count][:20]
     else:
         exact = contiguous
