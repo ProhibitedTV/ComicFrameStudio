@@ -1,46 +1,65 @@
 # Roadmap
 
-## Next: v1.6 — temporal animation language
+## Current baseline: v2.9.1 · Stability Seal
 
-Primary goal: make neighboring styled frames feel like one authored animation rather than independent paintings.
+The v2.x product path is feature-complete enough for long-form local rendering:
 
-- test optical-flow-assisted previous-frame guidance
-- evaluate keyframe + propagation workflows
-- add shot-change detection so temporal state resets at cuts
-- add optional motion-on-twos / held-frame timing without changing clip duration
-- add controlled smear-frame / impact-frame treatment for high-motion moments
-- add A/B test-video generation from a selected frame range
-- add frame-to-frame consistency metrics / contact sheets
+- ControlNet-first structural fidelity
+- pre- and post-diffusion temporal continuity
+- Shot Director treatments
+- shot-local reference locking
+- recurring Subject Library
+- adaptive Render Intelligence
+- AutoPilot orchestration
+- selective resume/invalidation
+- original-vs-styled preview video
+- measured ETA and bounded backend retry
+- VFR-aware final assembly
+- exact source identity / project ownership / path confinement
+- crash-safe final media replacement
 
-## v1.7 — style model workflow
+The next work should reduce architecture complexity rather than add another rendering subsystem.
 
-- checkpoint-family compatibility hints
-- LoRA metadata / trigger-word display when available
-- saved named style stacks combining checkpoint + LoRA + ControlNet + Graphic Print Finish
+## Next major target: v3.0 · RenderSession service boundary
+
+Primary goal: keep the current behavior while making it cheaper to reason about and test.
+
+- snapshot immutable render configuration before worker launch
+- move renderer state out of Tk variables and widgets
+- introduce explicit Project, RenderSession, Backend and MediaAssembler services
+- replace cooperative MRO overrides with explicit composition where practical
+- keep v2.9.1 project/timeline/profile compatibility through migration adapters
+- preserve one small stable `app.py` launcher
+- add headless service-level render tests independent of Tk
+
+## Reliability follow-ups
+
+- move remaining inline GitHub Actions smoke scripts into `tests/`
+- add a real tiny ffmpeg integration fixture for CFR + VFR assembly duration checks
+- add fault-injection tests around interrupted media writes and backend disconnects
+- add a synthetic end-to-end project migration fixture spanning v2.2 → current
+- add Windows CI for path, device-name and launcher behavior
+- add optional periodic project-integrity scan for hand-edited/copied projects
+
+## Optional quality features
+
+These are deliberately lower priority than architecture simplification:
+
+- semantic face/object-assisted recurring-subject suggestions, with manual Subject Library remaining authoritative
+- optional AI super-resolution final pass
+- render queue with named jobs/profiles
+- true pause-after-current-frame in addition to STOP/resume
+- import/export of named checkpoint + LoRA + ControlNet + style stacks
 - optional multiple LoRAs with per-model weights
-- style-stack import/export
-- curated guidance for illustration/comic versus photoreal checkpoints
+- user-selectable motion-on-twos / held-frame timing treatments
 
-## v1.8 — render operations
+## Non-goals for the next cycle
 
-- ETA / frames-per-hour telemetry
-- pause/resume controls
-- per-frame retry policy and failure quarantine
-- render queue with named profiles
-- optional automatic fallback 1280 → 1024 → 768 inference after recoverable GPU errors
+- adding another temporal engine before the existing stack is decomposed
+- replacing Canny source geometry with generated/reference geometry
+- hiding backend compatibility errors behind silent fallbacks
+- sacrificing deterministic resume behavior for speculative speedups
 
-## v1.9 — finishing / output
+## Exit condition for v3.0
 
-- optional AI upscale pass
-- color-script presets
-- test-contact-sheet export
-- side-by-side original/styled comparison video
-- optional texture plate overlays beyond generated print grain
-
-## Technical debt
-
-- move presets to data/config files
-- add unit tests for pure media/profile helpers
-- add API mock tests for A1111 checkpoint/sampler/LoRA/ControlNet discovery and error handling
-- split the stable core into a package when the v1.x surface stops moving rapidly
-- choose a license before broader distribution
+v3.0 should be considered successful if the same real projects render equivalently while the runtime can be understood without tracing a deep cooperative mixin chain. The current v2.9.1 behavior is the compatibility contract, not something to casually rewrite.
