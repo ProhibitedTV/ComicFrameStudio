@@ -1,320 +1,227 @@
 # ComicFrame Studio
 
-ComicFrame Studio is a local desktop GUI for turning ordinary video into source-faithful AI-stylized animation through an AUTOMATIC1111/Forge-compatible Stable Diffusion WebUI API.
+ComicFrame Studio is a local desktop application for turning ordinary video into source-faithful AI-stylized animation through an AUTOMATIC1111/Forge-compatible Stable Diffusion WebUI API.
 
-The source video is never overwritten.
+**Current stable runtime: v2.9.1 · Stability Seal**
 
-## Current version: v2.0
+The source video is never overwritten. ComicFrame extracts frames into a project directory, renders resumable styled PNGs, and creates a separate `FINAL_STYLED.mp4`.
 
-v2.0 adds **Shot Memory** on top of the v1.9 optical-flow engine, v1.8 artistic library, v1.7 pipeline-aware style packs, and v1.6 ControlNet-first continuity stack.
+## What the current runtime does
 
-ComicFrame now attacks frame consistency in three different places:
+ComicFrame is no longer a simple frame-by-frame img2img batcher. The current stack coordinates:
 
-1. **Before diffusion** — Shot Memory optical-flow warps trusted parts of the previous stylized frame into the current img2img initialization.
-2. **During diffusion** — Canny ControlNet receives the untouched current source frame and anchors pose, products, architecture, silhouette and camera geometry.
-3. **After diffusion** — optical-flow temporal transport warps the prior finished style into current-frame coordinates and confidence-gates the final stabilization blend.
+- automatic shot detection and per-shot art direction
+- Canny ControlNet structural locking
+- shot-local reference locking with IP-Adapter/reference-only capability detection and Shot Memory fallback
+- cross-shot recurring Subject Library references
+- pre-diffusion Shot Memory
+- optical-flow temporal transport after diffusion
+- adaptive per-shot inference resolution and diffusion steps
+- one-click AutoPilot planning/probing/rendering
+- cached project thumbnails, previews and selective rerendering
+- exact source-content identity and safe resume invalidation
+- variable-frame-rate timing preservation
+- measured render telemetry and rough ETA
+- bounded transient WebUI retry and OOM downgrade behavior
+- crash-safe final media replacement
 
-That split is intentional: style memory can persist without becoming structural guidance.
-
-## Pipeline
+## Production pipeline
 
 ```text
 source video
     ↓
-ffmpeg exact frame extraction
+exact source fingerprint + project ownership check
     ↓
-current source + transported Shot Memory
+ffmpeg frame extraction + original frame timing capture
     ↓
-SDXL img2img
+shot analysis / treatment / recurring-subject plan
+    ↓
+current source frame
+    + transported Shot Memory
+    + shot/project reference conditioning
+    ↓
+Stable Diffusion img2img
     + untouched-source Canny ControlNet
-    + optional style LoRA
     ↓
-shared deterministic Graphic Print Finish
+deterministic graphic/style finishing
     ↓
-style-specific deterministic finish
+optical-flow temporal stabilization
     ↓
-Optical Flow temporal transport
+validated resumable styled PNG
     ↓
-periodic per-shot reference anchor
-    ↓
-video reassembly at source FPS
+VFR-aware video reassembly
     ↓
 original audio restoration
+    ↓
+validated atomic FINAL_STYLED.mp4
 ```
 
-## What v2.0 adds
+The structural source sent to Canny remains the current untouched source frame. Style memory and reference conditioning do not replace source geometry.
 
-### Shot Memory
+## Quick start
 
-The previous stylized frame is motion-warped into current-frame coordinates **before Stable Diffusion runs**. Only high-confidence regions contribute. Scene cuts reset memory automatically.
+### 1. Start Stable Diffusion WebUI
 
-Periodic stabilized references are stored under:
+Use Forge or AUTOMATIC1111 with its API enabled. For the normal production path, install `sd-webui-controlnet` plus a Canny model compatible with the selected checkpoint family.
 
-```text
-shot_memory/full/references/
-```
+ComicFrame capability-detects the WebUI rather than assuming one fixed ControlNet/IP-Adapter installation.
 
-A low-strength palette lock can also carry shot-level color language without copying anchor geometry.
+### 2. Launch ComicFrame
 
-See [SHOT_MEMORY.md](SHOT_MEMORY.md).
+On Windows:
 
-### Optical-flow temporal engines
-
-v1.9 remains the post-diffusion continuity layer:
-
-```text
-Off
-Basic
-Optical Flow · Fast
-Optical Flow · Quality
-```
-
-**Optical Flow · Fast** is the normal default and computes motion near a 512-pixel long edge. **Quality** uses a 768-pixel proxy and a heavier Farnebäck solve.
-
-See [OPTICAL_FLOW.md](OPTICAL_FLOW.md).
-
-### Artistic library
-
-ComicFrame includes **44+ pipeline-aware looks**, including 30 v1.8 artistic packs across:
-
-- Fine Art
-- Cinema & Genre
-- Print & Poster
-- Experimental
-- Commercial
-- Core / Diagnostic
-
-Examples include Watercolor Wash, Oil Impasto, Charcoal Study, VHS Horror, Grindhouse Damage, Risograph Zine, Album Art, Liminal Haze, Signal Rupture, Luxury Ad, Hero Tech Promo, Corporate Propaganda, Dream Collapse, Manga Motion and Clean Graphic Novel.
-
-A style pack controls more than prompt text. It can own:
-
-- positive and negative prompting
-- denoise / steps / CFG
-- ControlNet weight and guidance end
-- temporal strength and cut thresholds
-- Graphic Print Finish components
-- deterministic finishing behavior
-- inference-resolution preference
-
-See [ARTISTIC_STYLES.md](ARTISTIC_STYLES.md) and [STYLES.md](STYLES.md).
-
-## Requirements
-
-- Windows/Linux/macOS with Python 3.10+
-- `ffmpeg` and `ffprobe` on `PATH`
-- a running AUTOMATIC1111/Forge-compatible Stable Diffusion WebUI API
-- `sd-webui-controlnet` for the normal production path
-- an SDXL-compatible Canny ControlNet model
-- optional SDXL illustration/comic/art LoRAs
-
-Python packages are listed in `requirements.txt`:
-
-- Requests
-- Pillow
-- NumPy
-- OpenCV
-
-Install manually with:
-
-```powershell
-py -m pip install -r requirements.txt
-```
-
-The Windows launcher now checks those imports and installs requirements automatically when they are missing.
-
-A1111/Forge should normally be started with:
-
-```text
---api
-```
-
-For roughly 8–16 GB VRAM with SDXL, a useful starting point is:
-
-```text
---api --medvram-sdxl
-```
-
-Default API:
-
-```text
-http://127.0.0.1:7860
-```
-
-## Launch
-
-Windows:
-
-```text
+```bat
 run_comicframe_studio.bat
 ```
 
-Or:
+Or with Python:
 
-```powershell
-py app.py
+```bash
+python app.py
 ```
 
-Canonical v2.0 window title:
+Python dependencies are listed in `requirements.txt`. `ffmpeg` and `ffprobe` must be available on PATH.
+
+### 3. Choose a source and project directory
+
+Use a dedicated ComicFrame project directory. v2.9+ writes a `.comicframe_project.json` ownership marker and refuses to destructively manage an ambiguous folder containing unrelated `frames/`, `cache/`, `subjects/`, or similarly named generated paths.
+
+### 4. Analyze and render
+
+Easy Mode is the intended default surface:
+
+1. choose the source video
+2. choose treatment / performance mode
+3. **Analyze Shots** or use **AutoPilot**
+4. inspect Quick Look / shot previews if desired
+5. **RENDER VIDEO**
+
+Completed compatible frames are reused. Timeline/reference/subject/render-plan changes invalidate only the affected work when possible.
+
+## Stability and resume guarantees
+
+The v2.8 → v2.9.1 audit series tightened the project boundary substantially:
+
+- new projects use a full-file SHA-256 source fingerprint
+- legacy v2.8 caches are decoded-frame checked before migration
+- changing source/project inside one running app clears process-local timeline, subject, flow and memory state
+- source files are checked for mutation during extraction and reverified before final assembly
+- corrupt cached PNGs are rejected instead of silently skipped as complete
+- generated directory and frame symlinks are refused
+- manifest filenames are path-confined, including Windows reserved device names
+- ControlNet one-unit configurations keep Canny and fall back to Shot Memory rather than overflowing unit capacity
+- transient WebUI 429/5xx/connection failures retry a bounded number of times
+- OOM remains handled by the adaptive low-resolution retry path rather than generic retries
+- final video files are encoded to temporary files, probed, then atomically replace the previous output only after validation
+- configuration controls are locked while a worker job is active
+
+## Timing and rotated video
+
+ComicFrame stores the decoded source-frame timing under the project cache. Variable-frame-rate clips are assembled from per-frame durations instead of being flattened to one average FPS.
+
+Display dimensions come from the extracted pixels, so phone footage with rotation metadata uses the geometry the renderer actually sees rather than blindly trusting coded stream dimensions.
+
+## Project layout
+
+A typical project contains:
 
 ```text
-ComicFrame Studio 2.0 · Shot Memory + Optical Flow
+project/
+  .comicframe_project.json
+  source_info.json
+  comicframe_timeline.json
+  comicframe_timeline.rendered.json
+  comicframe_profile.json
+  frames/
+  styled_frames/
+  test_frames/
+  subjects/
+  shot_memory/
+  previews/
+  cache/
+    analysis/
+    flow/
+    timing/
+    render_intelligence/
+    autopilot/
+  styled_silent.mp4
+  FINAL_STYLED.mp4
 ```
 
-## Recommended production starting point
+Generated state is deliberately contained inside the project directory.
 
-For source-faithful animated footage on an RTX 3060-class system:
+## Major subsystems
+
+- `comicframe_director.py` — shot detection, treatments and per-frame art direction
+- `comicframe_reference_lock.py` — shot-local reference conditioning
+- `comicframe_subjects.py` — recurring cross-shot subjects
+- `comicframe_shot_memory.py` — pre-diffusion temporal/style memory
+- `comicframe_optical_flow.py` — post-diffusion temporal transport
+- `comicframe_efficiency.py` — adaptive render intelligence and flow caching
+- `comicframe_autopilot.py` — one-click orchestration and verification
+- `comicframe_runtime_v28.py` — preserved v2.8 hardening compatibility boundary
+- `comicframe_runtime_v29.py` — media integrity, VFR assembly, retry and ETA audit layer
+- `comicframe_stability.py` — v2.9.1 process lifecycle/source-finalization seal
+- `comicframe_media.py` — pure media/project integrity helpers
+- `comicframe_manifest_safety.py` — persisted-path confinement helpers
+- `app.py` — intentionally small stable launcher
+
+## Preview tools
+
+The workspace includes:
+
+- Quick Look contact sheet
+- per-shot preview
+- contiguous Sequence Preview
+- original-vs-styled sequence comparison video
+- Compare Looks contact sheet
+- selected-shot rerender
+- use-original bypass
+- copy/paste/reset look controls
+
+## Reference and subject behavior
+
+For shot-local consistency, Auto mode prefers:
 
 ```text
-Preset:                    Video Fidelity · RTX 3060
-Checkpoint:                SDXL-family checkpoint
-Inference:                 1024 long edge
-Seed behavior:             fixed
-ControlNet:                ON / required
-ControlNet module:         canny
-ControlNet model:          diffusers_xl_canny_mid
-ControlNet weight:         0.95
-Guidance end:              0.92
-Temporal engine:           Optical Flow · Fast
-Temporal strength:         0.35
-Flow confidence floor:     0.35
-Shot Memory:               ON
-Shot Memory strength:      0.22
-Shot palette lock:         0.10
-Shot anchor interval:      24 frames
-Shot confidence floor:     0.45
-Test range:                30–60 frames
+compatible IP-Adapter
+→ ControlNet reference-only
+→ built-in Shot Memory fallback
 ```
 
-Use motion in the test range: head turns, hands, walking, camera movement, or a moving product are much more informative than a static talking head.
+If the WebUI exposes only one ControlNet unit, ComicFrame reserves it for Canny structural guidance and uses Shot Memory for identity/style continuity.
 
-## Continuity stack
+Recurring Subject Library assignments intentionally survive cuts; temporal Shot Memory does not.
 
-### ControlNet
+## Performance
 
-ControlNet is the structural foundation. Canny anchors:
+Render Intelligence supports Fast, Balanced and Quality project modes. It analyzes source motion/detail and requested artistic pressure to choose per-shot inference work instead of spending the same GPU budget on every frame.
 
-- body silhouette and pose
-- face/head placement
-- products and prop edges
-- furniture and architecture
-- camera composition
+Raw optical-flow results are cached and reused. Persistent flow cache size is bounded. Repeated reference-image base64 encoding is also bounded and cached in-process in v2.9.1.
 
-The recommended SDXL model remains:
+## Tests
 
-```text
-diffusers_xl_canny_mid.safetensors
-```
+The repository has dedicated CI for the core renderer, WebUI contract, Shot Memory, Shot Director, Reference Lock, Project Workspace, Render Intelligence, Subject Library, AutoPilot, runtime hardening and the second stability audit.
 
-Full setup: [CONTROLNET.md](CONTROLNET.md).
+The second-audit suite covers source fingerprinting, VFR timing, `0/0` FPS metadata, 7-digit frame numbering, corrupt/symlinked PNG rejection, project ownership, manifest confinement, ControlNet unit capacity, retry classification, ETA formatting, stable entrypoint routing, project-context reset, source-finalization checks and resume-profile migration.
 
-### Shot Memory — pre diffusion
+## Limitations and maintenance debt
 
-Shot Memory blends a confidence-masked, motion-warped version of the previous stylized frame into the next img2img starting image. The current source remains dominant and ControlNet still receives the clean source frame.
+See [KNOWN_ISSUES.md](KNOWN_ISSUES.md). These are current non-blocking limitations/architecture debt rather than known silent-corruption paths.
 
-This is especially useful for painterly styles, facial rendering, product highlights and repeated surface treatment.
+## More documentation
 
-### Optical Flow — post diffusion
-
-After the frame is rendered and all deterministic style finishing runs, v1.9 optical flow transports the previous final style through measured motion and blends it only where forward/backward flow and photometric agreement are trustworthy.
-
-### Fixed seed
-
-Video-lock renders force fixed seed behavior to remove avoidable stochastic drift between neighboring frames.
-
-## Graphic / artistic finishing
-
-ComicFrame's deterministic post stack can include:
-
-- reinforced ink edges
-- posterization
-- halftone
-- CMYK-like registration offsets
-- grain
-- watercolor / gouache / impasto treatments
-- charcoal / ink wash
-- VHS / grindhouse / surveillance signal language
-- risograph / screenprint / xerox treatments
-- glitch displacement / signal rupture
-- commercial cleanup and product-focused grading
-
-Effects are deterministic for a given frame number so post-processing does not become a random flicker source.
-
-## GPU behavior
-
-ComicFrame probes A1111's CUDA memory report before production renders.
-
-- **8 GiB or more**: 1024 long-edge inference is the normal recommendation.
-- **Below 8 GiB**: ComicFrame prefers the 768 long-edge low-VRAM ControlNet profile.
-
-Optical flow is computed on a reduced-resolution CPU proxy and is relatively cheap compared with SDXL diffusion.
-
-## Resume safety
-
-Full renders only resume when the complete render profile matches. Current profiles include:
-
-- checkpoint / sampler / scheduler
-- prompts
-- denoise / CFG / steps
-- seed behavior
-- LoRA settings
-- ControlNet configuration
-- inference resolution and upscale behavior
-- selected style pack / deterministic finisher
-- Graphic Print Finish controls
-- temporal engine / flow confidence settings
-- Shot Memory strength / palette / anchor interval / confidence settings
-
-If those change, ComicFrame blocks the resume rather than silently mixing incompatible generations.
-
-Test renders deliberately regenerate the selected range and use a separate temporary Shot Memory scope.
-
-## Project output
-
-```text
-frames/
-styled_frames/
-test_frames/
-shot_memory/
-    full/
-        manifest.json
-        references/
-    test/
-source_info.json
-render_settings.json
-comicframe_profile.json
-comicframe_test_profile.json
-styled_silent.mp4
-FINAL_STYLED.mp4
-```
-
-## Source layout
-
-```text
-app.py                         canonical launcher / runtime composition
-comicframe_studio.py           stable frame/video/API core
-comicframe_ui.py               desktop UI, WebUI discovery, previews
-comicframe_app.py              render policy, LoRA and Graphic Print Finish
-comicframe_controlnet.py       direct ControlNet discovery
-comicframe_controlnet_compat.py ControlNet v3 enum normalization
-comicframe_preflight.py        ControlNet/GPU preflight
-comicframe_video_lock.py       ControlNet-first basic temporal lock
-comicframe_optical_flow.py     v1.9 motion transport
-comicframe_shot_memory.py      v2.0 pre-diffusion shot memory
-comicframe_styles.py           core pipeline-aware style packs
-comicframe_artistic.py         v1.8 artistic expansion library
-comicframe_fx.py               shared deterministic print finish
-```
-
-## Troubleshooting
-
-ComicFrame surfaces common backend failures with actionable guidance:
-
-- `NansException` → lower inference resolution, try upcast cross attention, then precision changes.
-- CUDA OOM → use 1024/768 inference and `--medvram-sdxl`.
-- missing OpenCV/NumPy → rerun the launcher or install `requirements.txt`.
-- missing ControlNet/model → Sync WebUI / Detect and install a checkpoint-compatible Canny model.
-- ControlNet v3 enum errors → current builds normalize legacy numeric enum values automatically.
-
-See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
-
-Historical changes live in [CHANGELOG.md](CHANGELOG.md).
+- [PROJECT_WORKSPACE.md](PROJECT_WORKSPACE.md)
+- [AUTOPILOT.md](AUTOPILOT.md)
+- [DIRECTOR.md](DIRECTOR.md)
+- [REFERENCE_LOCK.md](REFERENCE_LOCK.md)
+- [SUBJECT_LIBRARY.md](SUBJECT_LIBRARY.md)
+- [SHOT_MEMORY.md](SHOT_MEMORY.md)
+- [OPTICAL_FLOW.md](OPTICAL_FLOW.md)
+- [EFFICIENCY.md](EFFICIENCY.md)
+- [CONTROLNET.md](CONTROLNET.md)
+- [WEBUI_CONTRACT.md](WEBUI_CONTRACT.md)
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- [AUDIT.md](AUDIT.md)
+- [ROADMAP.md](ROADMAP.md)
+- [CHANGELOG_V291.md](CHANGELOG_V291.md)

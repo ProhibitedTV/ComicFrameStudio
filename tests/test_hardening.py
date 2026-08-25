@@ -209,8 +209,12 @@ def test_malicious_shot_memory_filename_cannot_delete_outside_project(tmp_path: 
         "anchors": [{"frame": 3, "shot": 1, "file": "../../../../outside.txt"}],
     }))
 
-    assert prune_shot_memory_ranges_safe(tmp_path / "project", [(1, 5)]) == 1
+    # Fail closed: a hostile manifest is not partially trusted. The entire
+    # proven-project-confined Shot Memory scope is discarded, and -1 explicitly
+    # reports that stronger cleanup to callers.
+    assert prune_shot_memory_ranges_safe(tmp_path / "project", [(1, 5)]) == -1
     assert outside.read_text() == "do not touch"
+    assert not memory.exists()
 
 
 def test_subject_loader_drops_unsafe_ids_and_reference_paths(tmp_path: Path):
