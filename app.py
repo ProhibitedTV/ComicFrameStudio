@@ -7,6 +7,7 @@ from comicframe_controlnet_compat import ControlNetV3CompatMixin
 from comicframe_director import EasyShotDirectorMixin
 from comicframe_optical_flow import OpticalFlowTemporalMixin
 from comicframe_preflight import ControlNetPreflightMixin
+from comicframe_reference_lock import ReferenceLockMixin
 from comicframe_shot_memory import ShotMemoryMixin
 from comicframe_styles import StylePackMixin
 from comicframe_video_lock import ControlNetFirstVideoMixin
@@ -15,6 +16,7 @@ from comicframe_webui_contract import WebUIContractMixin
 
 class ComicFrameStudioApp(
     ControlNetV3CompatMixin,
+    ReferenceLockMixin,
     ShotMemoryMixin,
     EasyShotDirectorMixin,
     OpticalFlowTemporalMixin,
@@ -26,13 +28,12 @@ class ComicFrameStudioApp(
     WebUIContractMixin,
     BaseComicFrameStudioApp,
 ):
-    """Canonical runtime with easy shot direction over the hardened v2 continuity stack."""
+    """Canonical runtime with shot-local reference locking over the v2 continuity stack."""
 
     def __init__(self):
         super().__init__()
-        self.title("ComicFrame Studio 2.2 · Easy Shot Director")
-        # Easy Mode is intentionally the normal product surface. Clarify the
-        # checked state without changing the Director's simple boolean contract.
+        self.title("ComicFrame Studio 2.3 · Reference Lock + Easy Shot Director")
+        # Easy Mode remains the normal product surface.
         try:
             for child in self.director_card.winfo_children():
                 for widget in child.winfo_children():
@@ -48,7 +49,7 @@ class ComicFrameStudioApp(
         profile = super()._render_profile()
         # Historical mixins annotate their own generation while unwinding the
         # MRO. The canonical application boundary is authoritative for resume.
-        profile["app_version"] = "2.2"
+        profile["app_version"] = "2.3"
         return profile
 
 
