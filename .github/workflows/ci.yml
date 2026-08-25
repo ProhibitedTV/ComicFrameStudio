@@ -17,7 +17,7 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q .
       - name: Import canonical runtime
-        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio, comicframe_fx, comicframe_controlnet, comicframe_controlnet_compat, comicframe_preflight, comicframe_video_lock, comicframe_styles"
+        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio, comicframe_fx, comicframe_controlnet, comicframe_controlnet_compat, comicframe_preflight, comicframe_video_lock, comicframe_styles, comicframe_artistic"
       - name: Smoke-test ControlNet v3 payload enums
         run: |
           python - <<'PY'
@@ -67,6 +67,53 @@ jobs:
           assert after.size == before.size
           r, g, b = after.getpixel((20, 20))
           assert r == g == b, (r, g, b)
+          PY
+      - name: Smoke-test v1.8 artistic expansion
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageChops
+          import comicframe_styles as styles
+          from comicframe_artistic import (
+              ARTISTIC_STYLE_PACKS,
+              STYLE_CATEGORIES,
+              STYLE_STABILITY,
+              register_artistic_expansion,
+          )
+
+          register_artistic_expansion()
+          required = {
+              'Watercolor Wash', 'Oil Impasto', 'Charcoal Study', 'VHS Horror',
+              'Risograph Zine', 'Glitch Collapse', 'Liminal Haze', 'Luxury Ad',
+              'Hero Tech Promo', 'Clean Ecommerce', 'Signal Rupture'
+          }
+          assert required.issubset(styles.STYLE_PACKS), sorted(required - set(styles.STYLE_PACKS))
+          assert len(ARTISTIC_STYLE_PACKS) == 30, len(ARTISTIC_STYLE_PACKS)
+          assert len(styles.STYLE_PACKS) >= 44, len(styles.STYLE_PACKS)
+          assert set(styles.STYLE_PACKS).issubset(STYLE_CATEGORIES), set(styles.STYLE_PACKS) - set(STYLE_CATEGORIES)
+          assert set(styles.STYLE_PACKS).issubset(STYLE_STABILITY), set(styles.STYLE_PACKS) - set(STYLE_STABILITY)
+
+          for name, pack in ARTISTIC_STYLE_PACKS.items():
+              assert 0.0 <= pack.denoise <= 0.95, name
+              assert 0.0 <= pack.control_weight <= 2.0, name
+              assert 0.0 <= pack.guidance_end <= 1.0, name
+              assert 0.0 <= pack.temporal_strength <= 0.75, name
+              assert pack.finish != 'none', name
+
+          source = Path('/tmp/artistic_source.png')
+          one = Path('/tmp/artistic_one.png')
+          two = Path('/tmp/artistic_two.png')
+          Image.new('RGB', (192, 108), (150, 75, 210)).save(source)
+          Image.open(source).save(one)
+          Image.open(source).save(two)
+          styles.apply_style_finish(one, 'Signal Rupture', 11)
+          styles.apply_style_finish(two, 'Signal Rupture', 11)
+          diff = ImageChops.difference(Image.open(one).convert('RGB'), Image.open(two).convert('RGB'))
+          assert diff.getbbox() is None, 'Signal Rupture must be deterministic for the same frame number'
+
+          Image.open(source).save(one)
+          styles.apply_style_finish(one, 'Watercolor Wash', 3)
+          assert Image.open(one).size == (192, 108)
           PY
       - name: Smoke-test graphic print finish
         run: |
