@@ -18,6 +18,10 @@ class ComicFrameStudioApp(
 ):
     """Canonical runtime with ControlNet-first continuity and pipeline-aware styles."""
 
+    def __init__(self):
+        super().__init__()
+        self.title("ComicFrame Studio 1.7 · Style Packs + ControlNet Video Lock")
+
 
 def main():
     ComicFrameStudioApp().mainloop()
