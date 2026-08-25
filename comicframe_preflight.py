@@ -138,5 +138,5 @@ class ControlNetPreflightMixin:
 
     def _render_profile(self) -> dict:
         profile = super()._render_profile()
-        profile["app_version"] = "1.6"
+        profile["app_version"] = "1.7"
         return profile
