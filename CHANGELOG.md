@@ -1,5 +1,44 @@
 # Changelog
 
+## v2.0 — Shot Memory / pre-diffusion continuity
+
+- Added `comicframe_shot_memory.py`, a pre-diffusion continuity layer that closes the temporal loop around Stable Diffusion.
+- Optical-flow warps the previous finalized stylized frame into current-frame coordinates and blends only confidence-approved regions into the next img2img initialization.
+- Kept the current source image untouched for Canny ControlNet so visual memory cannot become accidental structural guidance.
+- Added low-strength LAB palette-statistics locking from persistent shot anchors.
+- Added automatic scene-cut memory reset using the v1.9 pixel-change + histogram-disagreement cut logic.
+- Added periodic stabilized shot references under `shot_memory/<scope>/references/` with a JSON manifest.
+- Added independent test/full shot-memory scopes so old experiments cannot contaminate a fresh test range.
+- Added resume-profile coverage for memory strength, palette strength, anchor interval and confidence floor.
+- Added the **4C · Shot memory · v2.0** UI card.
+- Added `SHOT_MEMORY.md` with architecture, controls, tuning and comparison guidance.
+- Rewrote the README around the current v2.0 continuity architecture.
+- Updated the Windows launcher to install Python requirements automatically when required imports are missing.
+- Added dedicated CI proving that img2img receives the memory-conditioned frame while the ControlNet unit still receives the untouched source image.
+
+## v1.9 — optical-flow temporal transport
+
+- Added `comicframe_optical_flow.py` with dense Farnebäck source-motion estimation.
+- Added **Off**, **Basic**, **Optical Flow · Fast**, and **Optical Flow · Quality** temporal engines.
+- Made Optical Flow · Fast the default production temporal engine.
+- Warped the previous stylized frame into current-frame coordinates before final temporal blending.
+- Added forward/backward flow-consistency confidence, photometric confidence, valid-coordinate rejection and configurable confidence flooring.
+- Improved scene-cut handling by combining gross pixel change with histogram disagreement, reducing camera-pan false positives.
+- Kept the Basic v1.6 temporal lock as a dependency/runtime fallback.
+- Added NumPy and OpenCV dependencies plus reduced-resolution 512/768 flow proxies.
+- Added v1.9 render-profile metadata and a synthetic moving-frame CI regression.
+- Added `OPTICAL_FLOW.md`.
+
+## v1.8 — artistic expansion library
+
+- Added `comicframe_artistic.py` as a modular artistic expansion layer.
+- Added 30 new pipeline-aware presets across Fine Art, Cinema & Genre, Print & Poster, Experimental and Commercial families.
+- Expanded the built-in library to 44+ styles.
+- Added an in-app artistic family browser with continuity classification, ControlNet pressure, temporal strength and descriptions.
+- Added deterministic watercolor, gouache, impasto, charcoal, pastel, ink-wash, grindhouse, VHS, surveillance, risograph, screenprint, xerox, analog-decay, liminal, brutalist, RGB-rupture and commercial finishing families.
+- Added CI coverage for pack metadata and deterministic artistic finish behavior.
+- Added `ARTISTIC_STYLES.md`.
+
 ## v1.7 — pipeline-aware style packs
 
 - Added `comicframe_styles.py`, a dedicated style-pack layer that keeps look-specific behavior out of the core renderer.

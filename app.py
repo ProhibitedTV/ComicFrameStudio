@@ -6,12 +6,14 @@ from comicframe_controlnet import DirectControlNetProbeMixin
 from comicframe_controlnet_compat import ControlNetV3CompatMixin
 from comicframe_optical_flow import OpticalFlowTemporalMixin
 from comicframe_preflight import ControlNetPreflightMixin
+from comicframe_shot_memory import ShotMemoryMixin
 from comicframe_styles import StylePackMixin
 from comicframe_video_lock import ControlNetFirstVideoMixin
 
 
 class ComicFrameStudioApp(
     ControlNetV3CompatMixin,
+    ShotMemoryMixin,
     OpticalFlowTemporalMixin,
     ArtisticExpansionMixin,
     ControlNetPreflightMixin,
@@ -20,11 +22,11 @@ class ComicFrameStudioApp(
     DirectControlNetProbeMixin,
     BaseComicFrameStudioApp,
 ):
-    """Canonical runtime with ControlNet continuity, artistic styles and optical flow."""
+    """Canonical runtime with shot memory, optical flow, ControlNet and artistic styles."""
 
     def __init__(self):
         super().__init__()
-        self.title("ComicFrame Studio 1.9 · Optical Flow + Artistic Expansion")
+        self.title("ComicFrame Studio 2.0 · Shot Memory + Optical Flow")
 
 
 def main():
