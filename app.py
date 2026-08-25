@@ -2,10 +2,11 @@
 """Stable ComicFrame Studio entrypoint."""
 from comicframe_app import ComicFrameStudioApp as BaseComicFrameStudioApp
 from comicframe_controlnet import DirectControlNetProbeMixin
+from comicframe_video_lock import ControlNetFirstVideoMixin
 
 
-class ComicFrameStudioApp(DirectControlNetProbeMixin, BaseComicFrameStudioApp):
-    """Canonical runtime with robust ControlNet discovery."""
+class ComicFrameStudioApp(ControlNetFirstVideoMixin, DirectControlNetProbeMixin, BaseComicFrameStudioApp):
+    """Canonical runtime with ControlNet-first, motion-aware video continuity."""
 
 
 def main():
