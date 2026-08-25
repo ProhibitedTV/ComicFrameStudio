@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.6 — ControlNet-first video lock / RTX 3060 profile
+
+- Promoted ControlNet from an optional advanced feature to the default production continuity path.
+- Added `comicframe_video_lock.py` with a source-faithful **Video Fidelity · RTX 3060** preset tuned to restyle the shot instead of redesigning it.
+- Added ControlNet-required render preflight with a deliberate diagnostic opt-out.
+- Added automatic Canny model/module selection with checkpoint-family preference and SDXL-vs-SD1.5 mismatch protection.
+- Added race-safe first-render ControlNet inventory probing so rendering cannot start before the Tk combo population callback finishes.
+- Added ControlNet weight, guidance-end, pixel-perfect, processor-resolution, and low-VRAM request hardening.
+- Added WebUI GPU-memory probing through `/sdapi/v1/memory`; sub-8 GiB systems automatically prefer the 768 long-edge / low-VRAM ControlNet path while 8+ GiB systems stay on the 1024 profile.
+- Added motion-aware temporal stabilization that reuses the previous stylized frame only in visually stable source regions.
+- Added scene-cut detection so temporal stabilization is bypassed on hard shot changes.
+- Forced fixed-seed behavior for video-lock renders to eliminate avoidable stochastic drift.
+- Extended resume manifests with ControlNet guidance and temporal-lock parameters so resumed videos cannot silently mix incompatible continuity settings.
+- Added CI coverage for the canonical ControlNet-first runtime and a temporal-lock image smoke test.
+
 ## v1.5 — graphic print intensity / LoRA style stack
 
 - Added `comicframe_fx.py`, a deterministic whole-frame finishing layer that runs after diffusion.

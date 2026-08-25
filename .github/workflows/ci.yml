@@ -17,7 +17,7 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q .
       - name: Import canonical runtime
-        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio, comicframe_fx"
+        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio, comicframe_fx, comicframe_controlnet, comicframe_preflight, comicframe_video_lock"
       - name: Smoke-test graphic print finish
         run: |
           python - <<'PY'
@@ -35,4 +35,40 @@ jobs:
           out = Image.open(path)
           assert out.size == (320, 180)
           assert out.mode == 'RGB'
+          PY
+      - name: Smoke-test motion-aware temporal lock
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          from comicframe_video_lock import ControlNetFirstVideoMixin
+
+          class Var:
+              def __init__(self, value): self.value = value
+              def get(self): return self.value
+
+          root = Path('/tmp/comicframe_temporal_smoke')
+          frames = root / 'frames'
+          styled = root / 'styled_frames'
+          frames.mkdir(parents=True, exist_ok=True)
+          styled.mkdir(parents=True, exist_ok=True)
+
+          # Identical source frames represent a static region. The lock should
+          # pull the new render toward the previous stylized frame.
+          Image.new('RGB', (96, 64), (100, 100, 100)).save(frames / 'frame_000001.png')
+          Image.new('RGB', (96, 64), (100, 100, 100)).save(frames / 'frame_000002.png')
+          Image.new('RGB', (96, 64), (255, 0, 0)).save(styled / 'frame_000001.png')
+          Image.new('RGB', (96, 64), (0, 0, 255)).save(styled / 'frame_000002.png')
+
+          obj = object.__new__(ControlNetFirstVideoMixin)
+          obj.temporal_enabled_var = Var(True)
+          obj.temporal_strength_var = Var(0.35)
+          obj.temporal_motion_var = Var(0.08)
+          obj.temporal_cut_var = Var(0.22)
+          obj._log = lambda *_: None
+          obj._temporal_lock(frames / 'frame_000002.png', styled / 'frame_000002.png', 2)
+
+          pixel = Image.open(styled / 'frame_000002.png').getpixel((10, 10))
+          assert pixel[0] > 0, pixel
+          assert pixel[2] < 255, pixel
           PY
