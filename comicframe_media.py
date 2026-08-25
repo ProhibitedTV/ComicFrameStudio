@@ -264,7 +264,6 @@ def frame_timing_from_probe(
         durations = [fallback] * expected_count
         mode = "constant-fallback"
 
-    # Clamp pathological metadata rather than generating an invalid concat timeline.
     durations = [max(1e-6, min(10.0, float(value))) for value in durations]
     median = statistics.median(durations) if durations else fallback
     variable = any(abs(value - median) > max(0.0005, median * 0.02) for value in durations)
@@ -280,8 +279,8 @@ def frame_timing_from_probe(
 
 
 def _concat_quote(path: Path) -> str:
-    # ffconcat single-quote escape: close quote, escaped quote, reopen quote.
-    return str(Path(path).resolve()).replace("'", "'\\''")
+    # Forward slashes avoid ffconcat treating Windows backslashes as escapes.
+    return Path(path).resolve().as_posix().replace("'", "'\\''")
 
 
 def write_ffconcat(path: Path, frame_dir: Path, numbers: list[int], durations: list[float]) -> None:
@@ -292,7 +291,6 @@ def write_ffconcat(path: Path, frame_dir: Path, numbers: list[int], durations: l
         frame = Path(frame_dir) / f"frame_{int(number):06d}.png"
         lines.append(f"file '{_concat_quote(frame)}'")
         lines.append(f"duration {max(1e-6, float(duration)):.9f}")
-    # ffmpeg ignores the final duration unless the last file is repeated.
     last = Path(frame_dir) / f"frame_{int(numbers[-1]):06d}.png"
     lines.append(f"file '{_concat_quote(last)}'")
     atomic_text_write(Path(path), "\n".join(lines) + "\n")
@@ -315,6 +313,7 @@ def _legacy_project_evidence(root: Path) -> bool:
     if not source.exists() or source.is_symlink():
         return False
     strong = (
+        root / "frames",
         root / "comicframe_timeline.json",
         root / "comicframe_profile.json",
         root / "render_settings.json",
@@ -323,10 +322,21 @@ def _legacy_project_evidence(root: Path) -> bool:
     return any(path.exists() for path in strong)
 
 
+def _reject_generated_symlinks(root: Path) -> None:
+    for name in (*GENERATED_DIRS, *GENERATED_FILES):
+        path = Path(root) / name
+        if path.is_symlink():
+            raise RuntimeError(
+                f"Project contains a generated-path symlink ({name}). ComicFrame will not follow project symlinks; "
+                "remove it or choose a clean project directory."
+            )
+
+
 def ensure_project_owned(root: Path) -> str:
     """Claim a new/legacy ComicFrame project, but refuse ambiguous generic-folder collisions."""
     root = Path(root).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
+    _reject_generated_symlinks(root)
     if _valid_marker(root):
         return "existing"
     if (root / PROJECT_MARKER).exists():
@@ -356,15 +366,14 @@ def safe_reset_generated_state(root: Path) -> None:
     root = Path(root).expanduser().resolve()
     if not _valid_marker(root):
         raise RuntimeError("Refusing to clear generated state: this folder is not marked as a ComicFrame project.")
+    _reject_generated_symlinks(root)
     for name in GENERATED_DIRS:
         path = root / name
-        if path.is_symlink():
-            path.unlink(missing_ok=True)
-        elif path.exists():
+        if path.exists():
             shutil.rmtree(path)
     for name in GENERATED_FILES:
         path = root / name
-        if path.is_symlink() or path.is_file():
+        if path.is_file():
             path.unlink(missing_ok=True)
 
 
@@ -373,18 +382,18 @@ def safe_clear_generated_directory(root: Path, directory: Path) -> None:
     directory = Path(directory)
     if not _valid_marker(root):
         raise RuntimeError("Refusing to clear generated files outside a verified ComicFrame project.")
+    if directory.is_symlink():
+        raise RuntimeError("Refusing to clear a generated directory through a symlink.")
     try:
         resolved = directory.resolve(strict=False)
         resolved.relative_to(root)
     except Exception as exc:
         raise RuntimeError("Generated directory escapes the ComicFrame project.") from exc
-    if directory.is_symlink():
-        directory.unlink(missing_ok=True)
-        directory.mkdir(parents=True, exist_ok=True)
-        return
     directory.mkdir(parents=True, exist_ok=True)
     for child in directory.iterdir():
-        if child.is_symlink() or child.is_file():
+        if child.is_symlink():
+            raise RuntimeError(f"Refusing to follow symlink inside generated directory: {child.name}")
+        if child.is_file():
             child.unlink(missing_ok=True)
         elif child.is_dir():
             shutil.rmtree(child)
