@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.7 — pipeline-aware style packs
+
+- Added `comicframe_styles.py`, a dedicated style-pack layer that keeps look-specific behavior out of the core renderer.
+- Expanded the preset library with **Clean Graphic Novel**, **Neo-Noir**, **Cyberpunk Print**, **Pulp Horror**, **Retro 70s Print**, **Manga Motion**, **Dream Collapse**, **Corporate Propaganda**, and **Analog Broadcast** while preserving the existing fidelity, shock, punch, structure-test, and diagnostic presets.
+- Promoted presets from prompt aliases to complete pipeline configurations: denoise, steps, CFG, ControlNet weight/guidance, temporal-lock behavior, Graphic Print Finish switches, negative prompting, and inference preference are now applied together.
+- Added deterministic style-specific finishing for noir monochrome, manga screentone contrast, warm 1970s print aging, pulp-horror grading, cyberpunk saturation, heroic product-ad cleanup, CRT scanlines/signal ghosting, and displaced-edge dream-collapse effects.
+- Kept style-specific finishing deterministic so new looks do not reintroduce random frame shimmer.
+- Added style-pack metadata to render profiles so resume safety can distinguish different style families.
+- Added `STYLES.md` with intended use, structural pressure, and temporal behavior for every bundled style.
+- Added CI coverage that validates all style-pack parameter ranges and runs a deterministic Neo-Noir image smoke test.
+- Bumped the canonical runtime and render manifests to v1.7.
+
 ## v1.6 — ControlNet-first video lock / RTX 3060 profile
 
 - Promoted ControlNet from an optional advanced feature to the default production continuity path.
