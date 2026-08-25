@@ -17,7 +17,27 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q .
       - name: Import canonical runtime
-        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio, comicframe_fx, comicframe_controlnet, comicframe_preflight, comicframe_video_lock"
+        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio, comicframe_fx, comicframe_controlnet, comicframe_controlnet_compat, comicframe_preflight, comicframe_video_lock"
+      - name: Smoke-test ControlNet v3 payload enums
+        run: |
+          python - <<'PY'
+          from comicframe_controlnet_compat import normalize_controlnet_payload
+
+          payload = {
+              'alwayson_scripts': {
+                  'controlnet': {
+                      'args': [{
+                          'control_mode': 0,
+                          'resize_mode': 0,
+                      }]
+                  }
+              }
+          }
+          normalize_controlnet_payload(payload)
+          unit = payload['alwayson_scripts']['controlnet']['args'][0]
+          assert unit['control_mode'] == 'Balanced', unit
+          assert unit['resize_mode'] == 'Just Resize', unit
+          PY
       - name: Smoke-test graphic print finish
         run: |
           python - <<'PY'
