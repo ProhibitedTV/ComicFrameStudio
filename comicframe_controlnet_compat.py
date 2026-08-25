@@ -31,7 +31,7 @@ _RESIZE_MODE_MAP = {
 
 
 def normalize_controlnet_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Normalize ControlNet units in-place to current string enum values."""
+    """Normalize ControlNet units in-place to current v3 API values."""
     scripts = payload.get("alwayson_scripts")
     if not isinstance(scripts, dict):
         return payload
@@ -53,6 +53,13 @@ def normalize_controlnet_payload(payload: dict[str, Any]) -> dict[str, Any]:
         resize = unit.get("resize_mode")
         if resize in _RESIZE_MODE_MAP:
             unit["resize_mode"] = _RESIZE_MODE_MAP[resize]
+
+        # ControlNet v3 defaults this API-only field to True, which can append
+        # preprocessor/detected maps to API image responses. ComicFrame never
+        # consumes those maps; disabling them shrinks response payloads and
+        # keeps the img2img response unambiguous.
+        if unit.get("enabled", True):
+            unit["save_detected_map"] = False
     return payload
 
 
