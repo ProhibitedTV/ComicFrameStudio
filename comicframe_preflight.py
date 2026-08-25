@@ -135,3 +135,8 @@ class ControlNetPreflightMixin:
         self.control_enabled_var.set(True)
         self.control_weight_var.set(0.95)
         self._log(f"ControlNet auto-selected: module={self.control_module_var.get()}, model={best}")
+
+    def _render_profile(self) -> dict:
+        profile = super()._render_profile()
+        profile["app_version"] = "1.6"
+        return profile
