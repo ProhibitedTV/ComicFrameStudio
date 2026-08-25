@@ -1,0 +1,142 @@
+name: Shot Director CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  director:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile and import v2.2 runtime
+        run: |
+          python -m compileall -q .
+          python -c "import app, comicframe_director, comicframe_shot_memory, comicframe_webui_contract"
+      - name: Smoke-test treatments and frame interpolation
+        run: |
+          python - <<'PY'
+          from copy import deepcopy
+          from comicframe_director import ORIGINAL, apply_treatment, frame_plan_signature, resolve_frame_plan
+
+          timeline = {
+              'fps': 30.0,
+              'total_frames': 100,
+              'shots': [
+                  {'id': 1, 'start': 1, 'end': 20},
+                  {'id': 2, 'start': 21, 'end': 40},
+                  {'id': 3, 'start': 41, 'end': 60},
+                  {'id': 4, 'start': 61, 'end': 80},
+                  {'id': 5, 'start': 81, 'end': 100},
+              ],
+          }
+          apply_treatment(timeline, 'Clean → Chaos')
+          assert timeline['shots'][-1]['style'] == ORIGINAL
+          assert timeline['shots'][0]['style'] == 'Clean Graphic Novel'
+          assert timeline['shots'][3]['style'] in {'Dream Collapse', 'Signal Rupture'}
+
+          plan_start = resolve_frame_plan(timeline, 41)
+          plan_end = resolve_frame_plan(timeline, 60)
+          assert plan_end['intensity'] >= plan_start['intensity']
+
+          before = deepcopy(timeline)
+          timeline['shots'][1]['style'] = 'Neo-Noir'
+          assert frame_plan_signature(before, 10) == frame_plan_signature(timeline, 10)
+          assert frame_plan_signature(before, 30) != frame_plan_signature(timeline, 30)
+          PY
+      - name: Smoke-test shot-aware cache invalidation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from comicframe_director import EasyShotDirectorMixin, apply_treatment
+
+          class Harness(EasyShotDirectorMixin):
+              def project_paths(self):
+                  return {'root': self.root, 'styled': self.root / 'styled_frames'}
+
+          root = Path('/tmp/comicframe_director_resume')
+          styled = root / 'styled_frames'
+          styled.mkdir(parents=True, exist_ok=True)
+          for n in range(1, 7):
+              (styled / f'frame_{n:06d}.png').write_bytes(b'x')
+
+          old = {
+              'total_frames': 6,
+              'shots': [
+                  {'id': 1, 'start': 1, 'end': 3, 'style': 'Clean Graphic Novel', 'intensity_start': .5, 'intensity_end': .5, 'curve': 'linear'},
+                  {'id': 2, 'start': 4, 'end': 6, 'style': 'Comic Punch · strong', 'intensity_start': .6, 'intensity_end': .6, 'curve': 'linear'},
+              ],
+          }
+          new = {
+              'total_frames': 6,
+              'shots': [
+                  dict(old['shots'][0]),
+                  {'id': 2, 'start': 4, 'end': 6, 'style': 'Neo-Noir', 'intensity_start': .6, 'intensity_end': .6, 'curve': 'linear'},
+              ],
+          }
+
+          obj = object.__new__(Harness)
+          obj.root = root
+          invalidated = obj._invalidate_changed_timeline_frames(old, new)
+          assert invalidated == 3, invalidated
+          assert all((styled / f'frame_{n:06d}.png').exists() for n in (1, 2, 3))
+          assert all(not (styled / f'frame_{n:06d}.png').exists() for n in (4, 5, 6))
+          PY
+      - name: Smoke-test original-footage bypass output
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          from comicframe_director import EasyShotDirectorMixin
+
+          class Harness(EasyShotDirectorMixin):
+              def _target_dimensions(self, width, height):
+                  return 80, 48
+
+          root = Path('/tmp/comicframe_director_original')
+          root.mkdir(parents=True, exist_ok=True)
+          source = root / 'source.png'
+          output = root / 'output.png'
+          Image.new('RGB', (160, 96), (50, 100, 150)).save(source)
+
+          obj = object.__new__(Harness)
+          obj._write_original_frame(source, output, 160, 96)
+          with Image.open(output) as image:
+              assert image.format == 'PNG'
+              assert image.size == (80, 48)
+              assert image.convert('RGB').getpixel((10, 10)) == (50, 100, 150)
+          PY
+      - name: Smoke-test cut detector
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          from comicframe_director import EasyShotDirectorMixin
+
+          class Var:
+              def __init__(self, value): self.value = value
+              def get(self): return self.value
+
+          class Harness(EasyShotDirectorMixin):
+              pass
+
+          root = Path('/tmp/comicframe_director_cuts')
+          root.mkdir(parents=True, exist_ok=True)
+          frames = []
+          for n, value in enumerate((20, 22, 24, 26, 28, 30, 235, 237, 239, 241, 243, 245), 1):
+              path = root / f'frame_{n:06d}.png'
+              Image.new('RGB', (160, 96), (value, value, value)).save(path)
+              frames.append(path)
+
+          obj = object.__new__(Harness)
+          obj.temporal_cut_var = Var(0.22)
+          boundaries = obj._detect_shot_boundaries(frames)
+          assert boundaries[0] == 1
+          assert 7 in boundaries, boundaries
+          assert len(boundaries) == 2, boundaries
+          PY
