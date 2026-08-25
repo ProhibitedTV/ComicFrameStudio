@@ -1,0 +1,261 @@
+name: Subject Library CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  subjects:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile and import v2.6 runtime
+        run: |
+          python -m compileall -q .
+          python -c "import app, comicframe_subjects, comicframe_efficiency, comicframe_reference_lock"
+      - name: Smoke-test deterministic reference scoring
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageDraw
+          from comicframe_subjects import reference_match_score
+
+          root = Path('/tmp/subject_score')
+          root.mkdir(parents=True, exist_ok=True)
+          source = root / 'source.png'
+          close = root / 'close.png'
+          far = root / 'far.png'
+          for path, bg, box in (
+              (source, (30, 30, 30), (25, 15, 95, 65)),
+              (close, (34, 34, 34), (26, 15, 96, 65)),
+              (far, (220, 220, 220), (5, 5, 25, 25)),
+          ):
+              image = Image.new('RGB', (120, 80), bg)
+              ImageDraw.Draw(image).rectangle(box, fill=(230, 80, 40))
+              image.save(path)
+          one = reference_match_score(source, close)
+          two = reference_match_score(source, close)
+          bad = reference_match_score(source, far)
+          assert one == two
+          assert one > bad, (one, bad)
+          PY
+      - name: Smoke-test stable subject registry and rename semantics
+        run: |
+          python - <<'PY'
+          import copy
+          from pathlib import Path
+          from PIL import Image
+          from comicframe_subjects import SubjectLibraryMixin, subject_dependency_signature
+
+          class Harness(SubjectLibraryMixin):
+              def project_paths(self):
+                  root = self.root
+                  return {
+                      'root': root,
+                      'subjects_root': root / 'subjects',
+                      'subjects_registry': root / 'subjects' / 'subjects.json',
+                      'frames': root / 'frames',
+                  }
+              def _log(self, *_): pass
+
+          root = Path('/tmp/subject_registry')
+          refdir = root / 'subjects' / 'sid1'
+          refdir.mkdir(parents=True, exist_ok=True)
+          Image.new('RGB', (64, 64), (10, 20, 30)).save(refdir / 'ref_a.png')
+          obj = object.__new__(Harness)
+          obj.root = root
+          obj._subject_loaded_root = None
+          obj._subjects = {
+              'version': '2.6',
+              'subjects': [{
+                  'id': 'sid1', 'name': 'Mug', 'type': 'Product',
+                  'references': [{'id': 'rid1', 'file': 'ref_a.png', 'sha256': '', 'source_shot': 1, 'source_frame': 2}],
+              }],
+          }
+          obj._save_subjects()
+          loaded = obj._load_subjects(force=True)
+          assert loaded['subjects'][0]['id'] == 'sid1'
+          assert loaded['subjects'][0]['references'][0]['sha256']
+
+          timeline = {'total_frames': 1, 'render_intelligence': {'mode': 'Balanced'}, 'shots': [{
+              'id': 1, 'start': 1, 'end': 1, 'style': 'Clean Graphic Novel',
+              'intensity_start': .5, 'intensity_end': .5, 'curve': 'linear',
+              'subject_lock': 'Locked', 'reference_frame': 1,
+              'reference_backend_resolved': 'Shot Memory', 'reference_model': '',
+              'render_intelligence': {'tier': 'moderate', 'long_edge': 1024, 'steps': 22},
+              'subject_id': 'sid1', 'subject_reference_id': 'rid1',
+              'subject_reference_hash': loaded['subjects'][0]['references'][0]['sha256'],
+              'subject_type_resolved': 'Product',
+          }]}
+          before = subject_dependency_signature(timeline, 1)
+          loaded['subjects'][0]['name'] = 'Based Mug'
+          obj._save_subjects()
+          after = subject_dependency_signature(timeline, 1)
+          assert before == after
+          PY
+      - name: Smoke-test pinned selection ignores newly added unused reference
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          from comicframe_subjects import SubjectLibraryMixin
+
+          class Harness(SubjectLibraryMixin):
+              def project_paths(self):
+                  root = self.root
+                  return {'root': root, 'frames': root / 'frames', 'subjects_root': root / 'subjects', 'subjects_registry': root / 'subjects' / 'subjects.json'}
+              def _load_subjects(self, force=False): return self._subjects
+
+          root = Path('/tmp/subject_pin')
+          (root / 'frames').mkdir(parents=True, exist_ok=True)
+          (root / 'subjects' / 'sid').mkdir(parents=True, exist_ok=True)
+          Image.new('RGB', (100, 60), (30, 40, 50)).save(root / 'frames' / 'frame_000002.png')
+          Image.new('RGB', (100, 60), (30, 40, 50)).save(root / 'subjects' / 'sid' / 'a.png')
+          Image.new('RGB', (100, 60), (30, 40, 50)).save(root / 'subjects' / 'sid' / 'b.png')
+          obj = object.__new__(Harness)
+          obj.root = root
+          obj._subjects = {'subjects': [{'id': 'sid', 'name': 'Hero', 'type': 'Person', 'references': [
+              {'id': 'a', 'file': 'a.png', 'sha256': 'ha'},
+              {'id': 'b', 'file': 'b.png', 'sha256': 'hb'},
+          ]}]}
+          shot = {'id': 1, 'start': 1, 'end': 3, 'style': 'Clean Graphic Novel', 'subject_id': 'sid', 'subject_reference_id': 'a', 'subject_lock': 'Strong'}
+          obj._resolve_subject_for_shot(shot, choose_if_missing=True)
+          assert shot['subject_reference_id'] == 'a'
+          assert shot['subject_reference_hash'] == 'ha'
+          PY
+      - name: Smoke-test subject-only selective invalidation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from comicframe_subjects import SubjectLibraryMixin
+
+          class FakeBase:
+              def _invalidate_changed_timeline_frames(self, old, new): return 0
+
+          class Harness(SubjectLibraryMixin, FakeBase):
+              def project_paths(self): return {'root': self.root, 'styled': self.root / 'styled_frames'}
+
+          root = Path('/tmp/subject_invalidation')
+          styled = root / 'styled_frames'
+          styled.mkdir(parents=True, exist_ok=True)
+          for n in range(1, 7):
+              (styled / f'frame_{n:06d}.png').write_bytes(b'x' * 12001)
+          base_shot = lambda sid, start, end: {
+              'id': sid, 'start': start, 'end': end, 'style': 'Clean Graphic Novel',
+              'intensity_start': .5, 'intensity_end': .5, 'curve': 'linear',
+              'subject_lock': 'Strong', 'reference_backend_resolved': 'Shot Memory', 'reference_model': '',
+          }
+          old = {'total_frames': 6, 'shots': [base_shot(1,1,3), base_shot(2,4,6)]}
+          new = {'total_frames': 6, 'shots': [dict(old['shots'][0]), dict(old['shots'][1])]}
+          new['shots'][1].update({'subject_id': 'sid', 'subject_reference_id': 'rid', 'subject_reference_hash': 'hash', 'subject_type_resolved': 'Product'})
+          obj = object.__new__(Harness)
+          obj.root = root
+          changed = obj._invalidate_changed_timeline_frames(old, new)
+          assert changed == 3, changed
+          assert all((styled / f'frame_{n:06d}.png').exists() for n in (1,2,3))
+          assert all(not (styled / f'frame_{n:06d}.png').exists() for n in (4,5,6))
+          PY
+      - name: Smoke-test recurring subject reference keeps current-source Canny isolated
+        run: |
+          python - <<'PY'
+          import base64
+          from pathlib import Path
+          from PIL import Image
+          from comicframe_subjects import SubjectLibraryMixin
+          from comicframe_reference_lock import ReferenceLockMixin, BACKEND_IP
+
+          class Var:
+              def __init__(self, value): self.value = value
+              def get(self): return self.value
+              def set(self, value): self.value = value
+
+          class FakeBase:
+              @staticmethod
+              def _encode_file(path): return base64.b64encode(Path(path).read_bytes()).decode('ascii')
+              def _load_director_timeline(self, silent=True): return self._director_timeline
+              def _build_payload(self, frame_path, settings, width, height, frame_number):
+                  source = self._encode_file(frame_path)
+                  return {'init_images': [source], 'alwayson_scripts': {'controlnet': {'args': [{
+                      'enabled': True, 'module': 'canny', 'model': 'controlnet-canny-sdxl', 'image': source, 'weight': .95,
+                  }]}}}
+
+          class Harness(SubjectLibraryMixin, ReferenceLockMixin, FakeBase):
+              def project_paths(self):
+                  root = self.root
+                  return {'root': root, 'frames': root / 'frames', 'subjects_root': root / 'subjects', 'subjects_registry': root / 'subjects' / 'subjects.json'}
+              def _load_subjects(self, force=False): return self._subjects
+
+          root = Path('/tmp/subject_payload')
+          frames = root / 'frames'; refs = root / 'subjects' / 'sid'
+          frames.mkdir(parents=True, exist_ok=True); refs.mkdir(parents=True, exist_ok=True)
+          current = frames / 'frame_000002.png'; subject_ref = refs / 'ref.png'
+          Image.new('RGB', (96,64), (90,80,70)).save(current)
+          Image.new('RGB', (96,64), (10,20,30)).save(subject_ref)
+          obj = object.__new__(Harness)
+          obj.root = root
+          obj._subjects = {'subjects': [{'id':'sid','name':'Hero','type':'Person','references':[{'id':'rid','file':'ref.png','sha256':'h'}]}]}
+          obj._director_timeline = {'shots': [{
+              'id':1,'start':1,'end':3,'style':'Clean Graphic Novel','subject_lock':'Strong',
+              'subject_id':'sid','subject_reference_id':'rid','subject_reference_hash':'h','subject_type_resolved':'Person',
+              'reference_backend_resolved':BACKEND_IP,'reference_module':'ip-adapter-auto','reference_model':'ip-adapter-plus_sdxl [abc]',
+          }]}
+          obj.control_low_vram_var = Var(False)
+          obj._reference_caps = {}
+          obj._reference_last_backend = ''
+          payload = obj._build_payload(current, None, 96, 64, 2)
+          args = payload['alwayson_scripts']['controlnet']['args']
+          current_b64 = base64.b64encode(current.read_bytes()).decode('ascii')
+          ref_b64 = base64.b64encode(subject_ref.read_bytes()).decode('ascii')
+          assert args[0]['image'] == current_b64
+          assert args[1]['image'] == ref_b64
+          assert args[0]['image'] != args[1]['image']
+          assert args[1]['save_detected_map'] is False
+          PY
+      - name: Smoke-test subject pressure feeds Render Intelligence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from comicframe_subjects import SubjectLibraryMixin
+
+          class Var:
+              def __init__(self, value): self.value = value
+              def get(self): return self.value
+
+          class FakeEfficiency:
+              def _build_efficiency_plan(self):
+                  directive = {'shot':1,'score':.70,'tier':'moderate','long_edge':1024,'steps':22,'motion':.5,'detail':.5,'intensity':.7}
+                  self._director_timeline['shots'][0]['render_intelligence'] = dict(directive)
+                  return {'version':'2.5','mode':'Balanced','counts':{'moderate':1},'shots':[dict(directive)]}
+
+          class Harness(SubjectLibraryMixin, FakeEfficiency):
+              def _load_subjects(self, force=False): return self._subjects
+              def project_paths(self): return {'render_plan': self.root / 'plan.json'}
+              def _timeline_path(self): return self.root / 'timeline.json'
+
+          root = Path('/tmp/subject_pressure'); root.mkdir(parents=True, exist_ok=True)
+          obj = object.__new__(Harness)
+          obj.root = root
+          obj.performance_mode_var = Var('Balanced')
+          obj._subjects = {'subjects':[{'id':'sid','name':'Product','type':'Product','references':[]}]}
+          obj._director_timeline = {'shots':[{'id':1,'start':1,'end':3,'style':'Clean Graphic Novel','subject_id':'sid','subject_lock':'Locked'}]}
+          plan = obj._build_efficiency_plan()
+          directive = obj._director_timeline['shots'][0]['render_intelligence']
+          assert directive['subject_pressure'] == .07
+          assert directive['tier'] == 'hard', directive
+          assert plan['subject_aware'] is True
+          PY
+      - name: Smoke-test v2.5 profile compatibility normalization
+        run: |
+          python - <<'PY'
+          from app import ComicFrameStudioApp
+          old = {'app_version':'2.5','checkpoint':'JuggernautXL','render_intelligence':{'version':'2.5'}}
+          new = {'app_version':'2.6','checkpoint':'JuggernautXL','render_intelligence':{'version':'2.5'},'subject_library':{'version':'2.6'}}
+          assert ComicFrameStudioApp._profile_without_director(old) == ComicFrameStudioApp._profile_without_director(new)
+          new['checkpoint'] = 'DifferentXL'
+          assert ComicFrameStudioApp._profile_without_director(old) != ComicFrameStudioApp._profile_without_director(new)
+          PY
