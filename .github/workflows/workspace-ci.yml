@@ -1,0 +1,198 @@
+name: Project Workspace CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile and import v2.4 runtime
+        run: |
+          python -m compileall -q .
+          python -c "import app, comicframe_workspace, comicframe_reference_lock, comicframe_director"
+      - name: Smoke-test shot thumbnails and transition selection
+        run: |
+          python - <<'PY'
+          from comicframe_workspace import thumbnail_frame_number, sequence_frame_numbers
+
+          shots = [
+              {'id': 1, 'start': 1, 'end': 20, 'reference_frame': 8},
+              {'id': 2, 'start': 21, 'end': 40, 'reference_frame': 30},
+              {'id': 3, 'start': 41, 'end': 60, 'reference_frame': 0},
+          ]
+          assert thumbnail_frame_number(shots[0]) == 8
+          assert thumbnail_frame_number(shots[2]) == 50
+          seq = sequence_frame_numbers(shots, 1, per_side=4)
+          assert seq == list(range(17, 25)), seq
+          assert all(1 <= n <= 60 for n in seq)
+          tail = sequence_frame_numbers(shots, 3, per_side=4)
+          assert tail
+          assert min(tail) >= 41 and max(tail) <= 60
+          PY
+      - name: Smoke-test cache state and workload accounting
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from comicframe_workspace import shot_cache_state, workload_snapshot
+
+          root = Path('/tmp/workspace_cache')
+          styled = root / 'styled_frames'
+          styled.mkdir(parents=True, exist_ok=True)
+          timeline = {
+              'total_frames': 6,
+              'shots': [
+                  {'id': 1, 'start': 1, 'end': 3, 'style': 'Clean Graphic Novel', 'intensity_start': .5, 'intensity_end': .5, 'curve': 'linear', 'subject_lock': 'Strong', 'reference_frame': 2, 'reference_backend_resolved': 'Shot Memory', 'reference_model': ''},
+                  {'id': 2, 'start': 4, 'end': 6, 'style': 'Neo-Noir', 'intensity_start': .6, 'intensity_end': .6, 'curve': 'linear', 'subject_lock': 'Strong', 'reference_frame': 5, 'reference_backend_resolved': 'Shot Memory', 'reference_model': ''},
+              ],
+          }
+          rendered = {
+              'total_frames': 6,
+              'shots': [dict(timeline['shots'][0]), dict(timeline['shots'][1])],
+          }
+          for n in range(1, 7):
+              (styled / f'frame_{n:06d}.png').write_bytes(b'x' * 12001)
+
+          first = shot_cache_state(timeline, rendered, styled, timeline['shots'][0])
+          assert first['status'] == 'rendered', first
+          rendered['shots'][1]['style'] = 'Comic Punch · strong'
+          second = shot_cache_state(timeline, rendered, styled, timeline['shots'][1])
+          assert second['status'] == 'dirty', second
+          work = workload_snapshot(timeline, rendered, styled)
+          assert work == {'total': 6, 'cached': 3, 'remaining': 3, 'dirty_shots': 1}, work
+          PY
+      - name: Smoke-test thumbnail cache creation and reuse
+        run: |
+          python - <<'PY'
+          import time
+          from pathlib import Path
+          from PIL import Image
+          from comicframe_workspace import ProjectWorkspaceMixin
+
+          class Harness(ProjectWorkspaceMixin):
+              def project_paths(self):
+                  return {
+                      'root': self.root,
+                      'frames': self.root / 'frames',
+                      'previews': self.root / 'previews',
+                      'workspace_cache': self.root / 'cache',
+                      'thumbs': self.root / 'cache' / 'shot_thumbnails',
+                      'compare': self.root / 'previews' / 'look_compare',
+                      'sequence': self.root / 'previews' / 'sequence',
+                  }
+
+          root = Path('/tmp/workspace_thumbs')
+          frames = root / 'frames'
+          frames.mkdir(parents=True, exist_ok=True)
+          Image.new('RGB', (640, 360), (40, 90, 140)).save(frames / 'frame_000005.png')
+          obj = object.__new__(Harness)
+          obj.root = root
+          shot = {'id': 1, 'start': 1, 'end': 10, 'reference_frame': 5}
+          one = obj._ensure_shot_thumbnail(shot)
+          assert one and one.exists()
+          with Image.open(one) as image:
+              assert image.size == (160, 90)
+              assert image.format == 'JPEG'
+          mtime = one.stat().st_mtime
+          time.sleep(0.02)
+          two = obj._ensure_shot_thumbnail(shot)
+          assert two == one
+          assert two.stat().st_mtime == mtime
+          PY
+      - name: Smoke-test friendly Easy Mode errors
+        run: |
+          python - <<'PY'
+          from comicframe_workspace import friendly_error_text
+
+          title, detail = friendly_error_text('CUDA out of memory while allocating tensor')
+          assert 'VRAM' in title
+          assert '768' in detail
+          title, detail = friendly_error_text('ControlNet is required but no usable model was detected')
+          assert 'ControlNet' in title
+          assert 'Sync WebUI' in detail
+          title, detail = friendly_error_text('Connection refused')
+          assert 'not connected' in title
+          PY
+      - name: Smoke-test session undo and redo
+        run: |
+          python - <<'PY'
+          import copy
+          from comicframe_workspace import ProjectWorkspaceMixin
+
+          class Var:
+              def __init__(self, value=''): self.value = value
+              def get(self): return self.value
+              def set(self, value): self.value = value
+
+          class FakeBase:
+              def _save_director_timeline(self): self.saved = copy.deepcopy(self._director_timeline)
+              def _refresh_director_ui(self): pass
+              def _director_load_selected_shot(self): pass
+
+          class Harness(ProjectWorkspaceMixin, FakeBase):
+              def _workspace_refresh_all(self): pass
+              def _workspace_refresh_selected(self): pass
+              def after(self, _delay, callback): callback()
+
+          obj = object.__new__(Harness)
+          old = {'shots': [{'id': 1, 'style': 'Clean Graphic Novel'}]}
+          new = {'shots': [{'id': 1, 'style': 'Neo-Noir'}]}
+          obj._director_timeline = copy.deepcopy(new)
+          obj._workspace_history = [copy.deepcopy(old)]
+          obj._workspace_redo = []
+          obj._workspace_suppress_history = False
+          obj.workspace_saved_var = Var()
+          obj._workspace_undo()
+          assert obj._director_timeline == old
+          assert obj._workspace_redo[-1] == new
+          obj._workspace_redo_action()
+          assert obj._director_timeline == new
+          PY
+      - name: Smoke-test selected-shot assembly suppression
+        run: |
+          python - <<'PY'
+          from comicframe_workspace import ProjectWorkspaceMixin
+
+          class FakeBase:
+              def _assemble(self, info):
+                  self.assembled = True
+                  return 'assembled'
+
+          class Harness(ProjectWorkspaceMixin, FakeBase): pass
+          obj = object.__new__(Harness)
+          obj._workspace_partial_render = True
+          obj._log = lambda *_: None
+          assert obj._assemble({}) is None
+          obj._workspace_partial_render = False
+          assert obj._assemble({}) == 'assembled'
+          assert obj.assembled is True
+          PY
+      - name: Smoke-test v2.3 render-cache profile compatibility
+        run: |
+          python - <<'PY'
+          from app import ComicFrameStudioApp
+
+          base = {
+              'app_version': '2.3',
+              'checkpoint': 'JuggernautXL',
+              'shot_director': {'timeline_hash': 'a'},
+              'reference_lock': {'version': '2.3'},
+          }
+          upgraded = {
+              'app_version': '2.4',
+              'checkpoint': 'JuggernautXL',
+              'shot_director': {'timeline_hash': 'b'},
+              'reference_lock': {'version': '2.3'},
+              'workspace': {'version': '2.4'},
+          }
+          assert ComicFrameStudioApp._profile_without_director(base) == ComicFrameStudioApp._profile_without_director(upgraded)
+          upgraded['checkpoint'] = 'DifferentXL'
+          assert ComicFrameStudioApp._profile_without_director(base) != ComicFrameStudioApp._profile_without_director(upgraded)
+          PY
