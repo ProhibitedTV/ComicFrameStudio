@@ -13,6 +13,7 @@ from comicframe_preflight import ControlNetPreflightMixin
 from comicframe_reference_lock import ReferenceLockMixin
 from comicframe_shot_memory import ShotMemoryMixin
 from comicframe_styles import StylePackMixin
+from comicframe_subjects import SubjectLibraryMixin
 from comicframe_video_lock import ControlNetFirstVideoMixin
 from comicframe_webui_contract import WebUIContractMixin
 from comicframe_workspace import ProjectWorkspaceMixin
@@ -20,6 +21,7 @@ from comicframe_workspace import ProjectWorkspaceMixin
 
 class ComicFrameStudioApp(
     ControlNetV3CompatMixin,
+    SubjectLibraryMixin,
     RenderIntelligenceMixin,
     ProjectWorkspaceMixin,
     ReferenceLockMixin,
@@ -34,13 +36,13 @@ class ComicFrameStudioApp(
     WebUIContractMixin,
     BaseComicFrameStudioApp,
 ):
-    """Canonical runtime with adaptive render intelligence over the v2 engine."""
+    """Canonical runtime with recurring subjects over adaptive render intelligence."""
 
     def __init__(self):
         super().__init__()
-        self.title("ComicFrame Studio 2.5 · Render Intelligence")
-        # Easy Mode remains the normal product surface; Project Workspace stays
-        # the front door while v2.5 adds only one human performance choice.
+        self.title("ComicFrame Studio 2.6 · Subject Library")
+        # Easy Mode remains the normal product surface; recurring subjects add
+        # one compact editorial concept without exposing backend conditioning.
         try:
             for child in self.director_card.winfo_children():
                 for widget in child.winfo_children():
@@ -54,15 +56,14 @@ class ComicFrameStudioApp(
 
     @staticmethod
     def _profile_without_director(profile: dict) -> dict:
-        """Let timeline signatures govern creative/per-shot render invalidation."""
+        """Let per-frame/timeline dependencies govern selective invalidation."""
         normalized = json.loads(json.dumps(profile))
         normalized.pop("shot_director", None)
         normalized.pop("reference_lock", None)
         normalized.pop("workspace", None)
         normalized.pop("render_intelligence", None)
-        # The application version and adaptive-plan metadata alone must not make
-        # already valid v2.4 frames unusable; v2.5 timeline signatures handle
-        # future performance-plan changes selectively.
+        normalized.pop("subject_library", None)
+        # v2.6 can reuse v2.5 work when no recurring subject dependency changed.
         normalized.pop("app_version", None)
         return normalized
 
@@ -70,7 +71,7 @@ class ComicFrameStudioApp(
         profile = super()._render_profile()
         # Historical mixins annotate their own generation while unwinding the
         # MRO. The canonical application boundary is authoritative for resume.
-        profile["app_version"] = "2.5"
+        profile["app_version"] = "2.6"
         return profile
 
 
