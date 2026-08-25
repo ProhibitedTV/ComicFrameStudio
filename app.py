@@ -7,6 +7,7 @@ from comicframe_artistic import ArtisticExpansionMixin
 from comicframe_controlnet import DirectControlNetProbeMixin
 from comicframe_controlnet_compat import ControlNetV3CompatMixin
 from comicframe_director import EasyShotDirectorMixin
+from comicframe_efficiency import RenderIntelligenceMixin
 from comicframe_optical_flow import OpticalFlowTemporalMixin
 from comicframe_preflight import ControlNetPreflightMixin
 from comicframe_reference_lock import ReferenceLockMixin
@@ -19,6 +20,7 @@ from comicframe_workspace import ProjectWorkspaceMixin
 
 class ComicFrameStudioApp(
     ControlNetV3CompatMixin,
+    RenderIntelligenceMixin,
     ProjectWorkspaceMixin,
     ReferenceLockMixin,
     ShotMemoryMixin,
@@ -32,13 +34,13 @@ class ComicFrameStudioApp(
     WebUIContractMixin,
     BaseComicFrameStudioApp,
 ):
-    """Canonical runtime with a simple project workspace over the full v2 engine."""
+    """Canonical runtime with adaptive render intelligence over the v2 engine."""
 
     def __init__(self):
         super().__init__()
-        self.title("ComicFrame Studio 2.4 · Project Workspace")
-        # Easy Mode remains the normal product surface; v2.4 makes the Project
-        # Workspace the front door and keeps legacy/engine cards behind Advanced.
+        self.title("ComicFrame Studio 2.5 · Render Intelligence")
+        # Easy Mode remains the normal product surface; Project Workspace stays
+        # the front door while v2.5 adds only one human performance choice.
         try:
             for child in self.director_card.winfo_children():
                 for widget in child.winfo_children():
@@ -52,13 +54,15 @@ class ComicFrameStudioApp(
 
     @staticmethod
     def _profile_without_director(profile: dict) -> dict:
-        """Ignore UI-only v2.4 metadata when checking render-cache compatibility."""
+        """Let timeline signatures govern creative/per-shot render invalidation."""
         normalized = json.loads(json.dumps(profile))
         normalized.pop("shot_director", None)
         normalized.pop("reference_lock", None)
         normalized.pop("workspace", None)
-        # v2.4 is intentionally a workspace/UX generation over the v2.3 render
-        # engine, so the version label alone must not invalidate reusable frames.
+        normalized.pop("render_intelligence", None)
+        # The application version and adaptive-plan metadata alone must not make
+        # already valid v2.4 frames unusable; v2.5 timeline signatures handle
+        # future performance-plan changes selectively.
         normalized.pop("app_version", None)
         return normalized
 
@@ -66,7 +70,7 @@ class ComicFrameStudioApp(
         profile = super()._render_profile()
         # Historical mixins annotate their own generation while unwinding the
         # MRO. The canonical application boundary is authoritative for resume.
-        profile["app_version"] = "2.4"
+        profile["app_version"] = "2.5"
         return profile
 
 
