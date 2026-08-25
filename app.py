@@ -31,6 +31,18 @@ class ComicFrameStudioApp(
     def __init__(self):
         super().__init__()
         self.title("ComicFrame Studio 2.2 · Easy Shot Director")
+        # Easy Mode is intentionally the normal product surface. Clarify the
+        # checked state without changing the Director's simple boolean contract.
+        try:
+            for child in self.director_card.winfo_children():
+                for widget in child.winfo_children():
+                    try:
+                        if widget.cget("text") == "Show advanced controls":
+                            widget.configure(text="Easy Mode · hide advanced controls")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     def _render_profile(self) -> dict:
         profile = super()._render_profile()
