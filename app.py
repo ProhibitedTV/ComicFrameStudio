@@ -4,6 +4,7 @@ import json
 
 from comicframe_app import ComicFrameStudioApp as BaseComicFrameStudioApp
 from comicframe_artistic import ArtisticExpansionMixin
+from comicframe_autopilot import AutoPilotMixin
 from comicframe_controlnet import DirectControlNetProbeMixin
 from comicframe_controlnet_compat import ControlNetV3CompatMixin
 from comicframe_director import EasyShotDirectorMixin
@@ -21,6 +22,7 @@ from comicframe_workspace import ProjectWorkspaceMixin
 
 class ComicFrameStudioApp(
     ControlNetV3CompatMixin,
+    AutoPilotMixin,
     SubjectLibraryMixin,
     RenderIntelligenceMixin,
     ProjectWorkspaceMixin,
@@ -36,13 +38,11 @@ class ComicFrameStudioApp(
     WebUIContractMixin,
     BaseComicFrameStudioApp,
 ):
-    """Canonical runtime with recurring subjects over adaptive render intelligence."""
+    """Canonical runtime with one-click AutoPilot over the full v2 engine."""
 
     def __init__(self):
         super().__init__()
-        self.title("ComicFrame Studio 2.6 · Subject Library")
-        # Easy Mode remains the normal product surface; recurring subjects add
-        # one compact editorial concept without exposing backend conditioning.
+        self.title("ComicFrame Studio 2.7 · AutoPilot")
         try:
             for child in self.director_card.winfo_children():
                 for widget in child.winfo_children():
@@ -56,22 +56,21 @@ class ComicFrameStudioApp(
 
     @staticmethod
     def _profile_without_director(profile: dict) -> dict:
-        """Let per-frame/timeline dependencies govern selective invalidation."""
+        """Let timeline dependencies govern selective render invalidation."""
         normalized = json.loads(json.dumps(profile))
         normalized.pop("shot_director", None)
         normalized.pop("reference_lock", None)
         normalized.pop("workspace", None)
         normalized.pop("render_intelligence", None)
         normalized.pop("subject_library", None)
-        # v2.6 can reuse v2.5 work when no recurring subject dependency changed.
+        normalized.pop("autopilot", None)
+        # v2.7 reuses v2.6 frames when the actual per-shot dependencies match.
         normalized.pop("app_version", None)
         return normalized
 
     def _render_profile(self) -> dict:
         profile = super()._render_profile()
-        # Historical mixins annotate their own generation while unwinding the
-        # MRO. The canonical application boundary is authoritative for resume.
-        profile["app_version"] = "2.6"
+        profile["app_version"] = "2.7"
         return profile
 
 
