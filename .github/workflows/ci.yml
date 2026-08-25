@@ -17,7 +17,7 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q .
       - name: Import canonical runtime
-        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio, comicframe_fx, comicframe_controlnet, comicframe_controlnet_compat, comicframe_preflight, comicframe_video_lock"
+        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio, comicframe_fx, comicframe_controlnet, comicframe_controlnet_compat, comicframe_preflight, comicframe_video_lock, comicframe_styles"
       - name: Smoke-test ControlNet v3 payload enums
         run: |
           python - <<'PY'
@@ -37,6 +37,36 @@ jobs:
           unit = payload['alwayson_scripts']['controlnet']['args'][0]
           assert unit['control_mode'] == 'Balanced', unit
           assert unit['resize_mode'] == 'Just Resize', unit
+          PY
+      - name: Smoke-test style packs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          from comicframe_styles import STYLE_PACKS, PUBLIC_STYLE_PRESETS, apply_style_finish
+
+          required = {
+              'Clean Graphic Novel', 'Neo-Noir', 'Cyberpunk Print', 'Pulp Horror',
+              'Retro 70s Print', 'Manga Motion', 'Dream Collapse',
+              'Corporate Propaganda', 'Analog Broadcast', 'Video Fidelity · RTX 3060'
+          }
+          assert required.issubset(STYLE_PACKS), sorted(required - set(STYLE_PACKS))
+          assert set(STYLE_PACKS) == set(PUBLIC_STYLE_PRESETS)
+          for name, pack in STYLE_PACKS.items():
+              assert 0.0 <= pack.control_weight <= 2.0, name
+              assert 0.0 <= pack.guidance_end <= 1.0, name
+              assert 0.0 <= pack.temporal_strength <= 0.75, name
+              assert 0.0 <= pack.fx <= 1.0, name
+              assert pack.steps > 0, name
+
+          path = Path('/tmp/comicframe_style_smoke.png')
+          Image.new('RGB', (160, 90), (180, 80, 40)).save(path)
+          before = Image.open(path).copy()
+          apply_style_finish(path, 'Neo-Noir', 1)
+          after = Image.open(path).convert('RGB')
+          assert after.size == before.size
+          r, g, b = after.getpixel((20, 20))
+          assert r == g == b, (r, g, b)
           PY
       - name: Smoke-test graphic print finish
         run: |
@@ -73,8 +103,6 @@ jobs:
           frames.mkdir(parents=True, exist_ok=True)
           styled.mkdir(parents=True, exist_ok=True)
 
-          # Identical source frames represent a static region. The lock should
-          # pull the new render toward the previous stylized frame.
           Image.new('RGB', (96, 64), (100, 100, 100)).save(frames / 'frame_000001.png')
           Image.new('RGB', (96, 64), (100, 100, 100)).save(frames / 'frame_000002.png')
           Image.new('RGB', (96, 64), (255, 0, 0)).save(styled / 'frame_000001.png')
