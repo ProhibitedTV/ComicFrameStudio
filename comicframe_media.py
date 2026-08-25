@@ -136,6 +136,8 @@ def frame_sequence_report(directory: Path, expected_count: int | None = None) ->
 
 def validate_png(path: Path, expected_size: tuple[int, int] | None = None) -> tuple[bool, str]:
     path = Path(path)
+    if path.is_symlink():
+        return False, "symlink"
     if not path.exists():
         return False, "missing"
     if path.stat().st_size < 64:
@@ -157,7 +159,7 @@ def invalid_png_numbers(directory: Path, numbers: Iterable[int]) -> list[tuple[i
     invalid: list[tuple[int, str]] = []
     for number in sorted({int(n) for n in numbers if int(n) > 0}):
         path = Path(directory) / f"frame_{number:06d}.png"
-        if not path.exists():
+        if not path.exists() and not path.is_symlink():
             continue
         ok, reason = validate_png(path)
         if not ok:
