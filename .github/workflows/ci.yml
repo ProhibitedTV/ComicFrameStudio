@@ -17,7 +17,7 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q .
       - name: Import canonical runtime
-        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio, comicframe_fx, comicframe_controlnet, comicframe_controlnet_compat, comicframe_preflight, comicframe_video_lock, comicframe_styles, comicframe_artistic"
+        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio, comicframe_fx, comicframe_controlnet, comicframe_controlnet_compat, comicframe_preflight, comicframe_video_lock, comicframe_styles, comicframe_artistic, comicframe_optical_flow"
       - name: Smoke-test ControlNet v3 payload enums
         run: |
           python - <<'PY'
@@ -114,6 +114,68 @@ jobs:
           Image.open(source).save(one)
           styles.apply_style_finish(one, 'Watercolor Wash', 3)
           assert Image.open(one).size == (192, 108)
+          PY
+      - name: Smoke-test v1.9 optical-flow temporal transport
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import numpy as np
+          from PIL import Image
+          from comicframe_optical_flow import FLOW_FAST, OpticalFlowTemporalMixin
+          from comicframe_video_lock import ControlNetFirstVideoMixin
+
+          class Harness(OpticalFlowTemporalMixin, ControlNetFirstVideoMixin):
+              pass
+
+          class Var:
+              def __init__(self, value): self.value = value
+              def get(self): return self.value
+              def set(self, value): self.value = value
+
+          root = Path('/tmp/comicframe_flow_smoke')
+          frames = root / 'frames'
+          styled = root / 'styled_frames'
+          frames.mkdir(parents=True, exist_ok=True)
+          styled.mkdir(parents=True, exist_ok=True)
+
+          rng = np.random.default_rng(1234)
+          prev = rng.integers(0, 256, size=(96, 160, 3), dtype=np.uint8)
+          cur = np.zeros_like(prev)
+          cur[:, 6:] = prev[:, :-6]
+          Image.fromarray(prev, 'RGB').save(frames / 'frame_000001.png')
+          Image.fromarray(cur, 'RGB').save(frames / 'frame_000002.png')
+
+          prior_style = np.zeros_like(prev)
+          prior_style[..., 0] = 240
+          current_style = np.zeros_like(prev)
+          current_style[..., 2] = 240
+          Image.fromarray(prior_style, 'RGB').save(styled / 'frame_000001.png')
+          Image.fromarray(current_style, 'RGB').save(styled / 'frame_000002.png')
+
+          obj = object.__new__(Harness)
+          obj.temporal_engine_var = Var(FLOW_FAST)
+          obj.temporal_enabled_var = Var(True)
+          obj.temporal_strength_var = Var(0.50)
+          obj.temporal_motion_var = Var(0.08)
+          obj.temporal_cut_var = Var(0.22)
+          obj.flow_confidence_var = Var(0.05)
+          obj._flow_fallback_logged = False
+          obj._log = lambda *_: None
+          obj._temporal_lock(frames / 'frame_000002.png', styled / 'frame_000002.png', 2)
+
+          result = np.asarray(Image.open(styled / 'frame_000002.png').convert('RGB'))
+          center = result[48, 80]
+          assert center[0] > 20, center
+          assert center[2] < 240, center
+
+          flow, confidence = obj._estimate_transport(
+              np.asarray(Image.open(frames / 'frame_000001.png').convert('L')),
+              np.asarray(Image.open(frames / 'frame_000002.png').convert('L')),
+              quality=False,
+              confidence_floor=0.05,
+          )
+          assert flow.shape == (96, 160, 2), flow.shape
+          assert float(confidence[20:-20, 20:-20].mean()) > 0.10, confidence.mean()
           PY
       - name: Smoke-test graphic print finish
         run: |
