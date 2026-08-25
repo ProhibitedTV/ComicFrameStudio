@@ -30,6 +30,13 @@ class ComicFrameStudioApp(
         super().__init__()
         self.title("ComicFrame Studio 2.1 · Hardened WebUI Contract + Shot Memory")
 
+    def _render_profile(self) -> dict:
+        profile = super()._render_profile()
+        # Historical mixins annotate their own generation while unwinding the
+        # MRO. The canonical application boundary is authoritative for resume.
+        profile["app_version"] = "2.1"
+        return profile
+
 
 def main():
     ComicFrameStudioApp().mainloop()
