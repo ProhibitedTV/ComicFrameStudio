@@ -2,7 +2,7 @@
 """ComicFrame Studio v3.0 — video in, process, video out.
 
 This module is intentionally an aggressive product boundary over the existing
-renderer.  The v2 engine remains intact and audited underneath, but none of its
+renderer. The v2 engine remains intact and audited underneath, but none of its
 implementation controls are part of the normal operator experience.
 
 Normal workflow:
@@ -10,7 +10,6 @@ Normal workflow:
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
@@ -36,9 +35,8 @@ from comicframe_workspace import friendly_error_text
 
 
 SIMPLE_VERSION = "3.0"
+register_artistic_expansion()
 
-# Sequences are first-class processes alongside single-style passes.  The labels
-# are deliberately creative/user-facing; none expose implementation language.
 SEQUENCE_PROCESSES: dict[str, str] = {
     "Clean → Chaos · sequence": "Clean → Chaos",
     "Reality Break · sequence": "Reality Break",
@@ -46,9 +44,6 @@ SEQUENCE_PROCESSES: dict[str, str] = {
     "Product Fever Dream · sequence": "Product Promo",
 }
 
-# Curated rather than alphabetical: the first screen should emphasize looks that
-# are worth actually playing with.  Missing names are simply filtered out, which
-# keeps the shell compatible if the style library evolves independently.
 STYLE_PROCESS_ORDER = (
     "Graphic Shock · maximum print",
     "Cyberpunk Print",
@@ -91,7 +86,6 @@ STYLE_PROCESS_ORDER = (
 
 def simple_process_catalog() -> list[str]:
     """Return the complete public process list without diagnostic engine modes."""
-    register_artistic_expansion()
     values = list(SEQUENCE_PROCESSES)
     values.extend(name for name in STYLE_PROCESS_ORDER if name in styles.STYLE_PACKS)
     return values
@@ -163,7 +157,6 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
     """The full ComicFrame engine behind a deliberately tiny product surface."""
 
     def __init__(self):
-        register_artistic_expansion()
         super().__init__()
         self.title("ComicFrame Studio 3.0 · Video In / Video Out")
         self.geometry("940x820")
@@ -191,7 +184,7 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
 
     def _install_simple_shell(self) -> None:
         # The engine UI is still instantiated so every mature renderer layer keeps
-        # its variables and widget references.  It is not the product UI anymore.
+        # its variables and widget references. It is not the product UI anymore.
         for child in list(self.winfo_children()):
             self._forget_widget(child)
 
@@ -318,9 +311,8 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
         )
         self.simple_folder_button.pack(side="left", padx=(8, 0))
 
-        # There is no project selector, checkpoint selector, ControlNet switch,
-        # sampler, subject panel, cache panel, advanced toggle, or log console here.
-        # Those are implementation details of the process button.
+        # No project selector, checkpoint selector, ControlNet switch, sampler,
+        # subject panel, cache panel, advanced toggle, or log console exists here.
         self.progress_label_var.set("Ready")
 
     def _simple_process_changed(self, _event=None) -> None:
@@ -340,8 +332,8 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
             return
         video = Path(path).expanduser().resolve()
         self.video_var.set(str(video))
-        # Project/cache storage is now an implementation detail, always derived
-        # from the source.  The operator never has to name or understand it.
+        # Project/cache storage is an implementation detail, always derived from
+        # the source. The operator never has to name or understand it.
         self.work_var.set(str(default_project_path_for_video(video)))
         self.simple_video_var.set(video.name)
         self.simple_result_var.set("")
@@ -371,7 +363,7 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
             canvas = Image.new("RGB", (820, 390), (16, 17, 22))
             canvas.paste(image, ((820 - image.width) // 2, (390 - image.height) // 2))
             photo = ImageTk.PhotoImage(canvas)
-            self.simple_preview.configure(image=photo, text="", height=390)
+            self.simple_preview.configure(image=photo, text="")
             self._simple_preview_ref = photo
         except Exception:
             pass
@@ -399,6 +391,9 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
 
     def _simple_process_clicked(self) -> None:
         if self._simple_busy:
+            return
+        if self.worker and self.worker.is_alive():
+            messagebox.showinfo("ComicFrame", "ComicFrame is finishing startup. Run the process again once it is ready.")
             return
         video_text = str(self.video_var.get() or "").strip()
         if not video_text:
@@ -445,29 +440,29 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
                 shutil.copy2(final, output)
                 self._simple_output_path = output
 
-                # Show one rendered frame as an immediate visual receipt.
                 styled = Path(self.project_paths()["styled"])
                 representative = next(iter(sorted(styled.glob("frame_*.png"))), None)
                 if representative is not None:
                     self.after(0, lambda p=representative: self._simple_show_image(p))
 
-                def success() -> None:
+                def success(result_path=output) -> None:
                     self.progress.set(100)
                     self.progress_label_var.set("Video ready")
-                    self.simple_result_var.set(str(output))
+                    self.simple_result_var.set(str(result_path))
                     self._simple_set_result_buttons(True)
 
                 self.after(0, success)
             except Exception as exc:
-                self._log(f"ERROR: {exc}")
+                error_text = str(exc)
+                self._log(f"ERROR: {error_text}")
                 try:
-                    title, detail = friendly_error_text(str(exc))
+                    title, detail = friendly_error_text(error_text)
                 except Exception:
-                    title, detail = "Processing failed", str(exc)
+                    title, detail = "Processing failed", error_text
 
-                def failure() -> None:
+                def failure(error_title=title, error_detail=detail) -> None:
                     self.progress_label_var.set("Processing failed")
-                    messagebox.showerror(title or "Processing failed", detail or str(exc))
+                    messagebox.showerror(error_title or "Processing failed", error_detail or error_text)
 
                 self.after(0, failure)
             finally:
