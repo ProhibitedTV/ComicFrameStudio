@@ -8,7 +8,14 @@ import comicframe_artistic as artistic
 import comicframe_product as product
 import comicframe_simple as simple
 import comicframe_styles as styles
-from comicframe_style_library import NEW_STYLE_SPECS, STYLE_LIBRARY_VERSION
+from comicframe_style_library import (
+    NEW_STYLE_SPECS,
+    PROMPT_WEIGHT_POLICY_VERSION,
+    PROMPT_WEIGHT_PROFILES,
+    STYLE_LIBRARY_VERSION,
+    WEIGHTED_PROMPT_MARKER,
+    weighted_prompt_policy,
+)
 
 
 def test_stable_entrypoint_is_the_single_product_shell():
@@ -36,7 +43,46 @@ def test_every_public_single_style_has_authored_redraw_policy():
             continue
         pack = styles.STYLE_PACKS[name]
         assert "decisive authored reinterpretation" in pack.prompt
+        assert WEIGHTED_PROMPT_MARKER in pack.prompt
+        assert "weak filter-only stylization" in pack.negative
         assert "Aggressive redraw baseline" in pack.description
+
+
+def test_prompt_attention_strength_tracks_style_stability():
+    for name in simple.simple_process_catalog():
+        if name in simple.SEQUENCE_PROCESSES:
+            continue
+        pack = styles.STYLE_PACKS[name]
+        stability = artistic.STYLE_STABILITY.get(name, "Medium")
+        profile = PROMPT_WEIGHT_PROFILES.get(stability, PROMPT_WEIGHT_PROFILES["Medium"])
+        assert f":{profile.style_anchor:.2f})" in pack.prompt, name
+        assert f":{profile.redraw:.2f})" in pack.prompt, name
+        assert f":{profile.material:.2f})" in pack.prompt, name
+        assert f":{profile.continuity:.2f})" in pack.prompt, name
+        assert f":{profile.anti_photo:.2f})" in pack.negative, name
+
+    high = PROMPT_WEIGHT_PROFILES["High"]
+    medium = PROMPT_WEIGHT_PROFILES["Medium"]
+    experimental = PROMPT_WEIGHT_PROFILES["Experimental"]
+    assert high.style_anchor < medium.style_anchor < experimental.style_anchor
+    assert high.redraw < medium.redraw < experimental.redraw
+    assert high.anti_photo < medium.anti_photo < experimental.anti_photo
+    assert experimental.continuity <= medium.continuity <= high.continuity
+
+
+def test_weighted_prompt_policy_is_idempotent_and_escapes_attention_punctuation():
+    prompt, negative = weighted_prompt_policy(
+        "ink (dirty), paper [rough], red shadow",
+        "clean photo",
+        "Medium",
+    )
+    assert r"\(dirty\)" in prompt
+    assert r"\[rough\]" in prompt
+    assert WEIGHTED_PROMPT_MARKER in prompt
+    assert "weak filter-only stylization" in negative
+    prompt2, negative2 = weighted_prompt_policy(prompt, negative, "Medium")
+    assert prompt2 == prompt
+    assert negative2 == negative
 
 
 def test_style_policy_floors_still_hold():
@@ -103,4 +149,6 @@ def test_public_surface_and_live_presence_contract():
     assert "_presence_tick" in busy_source
     assert "LIVE_PREVIEW_EVERY" in progress_source
     assert product.MIN_STEPS == 12 and product.DEFAULT_STEPS == 24 and product.MAX_STEPS == 36
-    assert product.PRODUCT_VERSION == "3.5" and STYLE_LIBRARY_VERSION == "3.5"
+    assert product.PRODUCT_VERSION == "3.5"
+    assert STYLE_LIBRARY_VERSION == "3.6"
+    assert PROMPT_WEIGHT_POLICY_VERSION == "1"
