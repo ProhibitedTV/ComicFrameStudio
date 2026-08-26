@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ComicFrame Studio v3.1 — focused video/process/result interface.
 
-The renderer remains the v3.0 simple-flow engine.  This layer only changes the
+The renderer remains the v3.0 simple-flow engine. This layer only changes the
 operator surface: a large responsive preview, a visible process browser, one
 primary action, compact progress, and a result card that appears only when a
 result exists.
@@ -14,7 +14,6 @@ import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageOps, ImageTk
 
-import comicframe_styles as styles
 from comicframe_artistic import STYLE_CATEGORIES, STYLE_STABILITY
 from comicframe_simple import (
     ComicFrameStudioApp as SimpleFlowApp,
@@ -24,6 +23,7 @@ from comicframe_simple import (
 )
 
 INTERFACE_VERSION = "3.1"
+DEFAULT_PROCESS = "Graphic Shock · maximum print"
 
 BG = "#0d0f14"
 CARD = "#171a22"
@@ -40,9 +40,7 @@ DANGER = "#693039"
 
 def process_display_name(name: str) -> str:
     """Short public label for the process browser."""
-    if " · " in name:
-        return name.split(" · ", 1)[0]
-    return name
+    return name.split(" · ", 1)[0] if " · " in name else name
 
 
 def process_meta(name: str) -> str:
@@ -59,8 +57,6 @@ def process_rows() -> list[tuple[str, str]]:
     seen: set[str] = set()
     for canonical in simple_process_catalog():
         label = process_display_name(canonical)
-        # Labels are expected to be unique. Keep a deterministic fallback if a
-        # future style family introduces the same short name.
         if label in seen:
             label = canonical
         seen.add(label)
@@ -123,8 +119,8 @@ class ComicFrameStudioApp(SimpleFlowApp):
         )
 
     def _install_simple_shell(self) -> None:
-        # The legacy engine UI is still created because mature renderer layers
-        # own variables/widgets there.  It is intentionally removed from view.
+        # The legacy engine UI is still instantiated so every mature renderer
+        # layer keeps its variables/widget references. It is not product UI.
         for child in list(self.winfo_children()):
             self._forget_widget(child)
 
@@ -132,10 +128,10 @@ class ComicFrameStudioApp(SimpleFlowApp):
         self._configure_simple_interface_styles()
 
         self.simple_video_var = tk.StringVar(value="No video selected")
-        self.simple_process_var = tk.StringVar(value="Graphic Shock · maximum print")
-        self.simple_process_info_var = tk.StringVar(value=process_description(self.simple_process_var.get()))
-        self.simple_process_meta_var = tk.StringVar(value=process_meta(self.simple_process_var.get()))
-        self.simple_selected_title_var = tk.StringVar(value=process_display_name(self.simple_process_var.get()))
+        self.simple_process_var = tk.StringVar(value=DEFAULT_PROCESS)
+        self.simple_process_info_var = tk.StringVar(value=process_description(DEFAULT_PROCESS))
+        self.simple_process_meta_var = tk.StringVar(value=process_meta(DEFAULT_PROCESS))
+        self.simple_selected_title_var = tk.StringVar(value=process_display_name(DEFAULT_PROCESS))
         self.simple_result_var = tk.StringVar(value="")
         self.simple_progress_pct_var = tk.StringVar(value="0%")
         self._simple_process_rows = process_rows()
@@ -146,7 +142,7 @@ class ComicFrameStudioApp(SimpleFlowApp):
         shell.pack(fill="both", expand=True)
         self.simple_shell = shell
 
-        # Header: brand at left, source control at right. No bordered form header.
+        # Header: brand left, source control right.
         header = tk.Frame(shell, bg=BG)
         header.pack(fill="x", pady=(0, 18))
         brand = tk.Frame(header, bg=BG)
@@ -293,8 +289,13 @@ class ComicFrameStudioApp(SimpleFlowApp):
         self.simple_process_list.configure(yscrollcommand=scroll.set)
         for display, _canonical in self._simple_process_rows:
             self.simple_process_list.insert("end", display)
-        self.simple_process_list.selection_set(0)
-        self.simple_process_list.activate(0)
+        default_index = next(
+            (i for i, (_display, canonical) in enumerate(self._simple_process_rows) if canonical == DEFAULT_PROCESS),
+            0,
+        )
+        self.simple_process_list.selection_set(default_index)
+        self.simple_process_list.activate(default_index)
+        self.simple_process_list.see(default_index)
         self.simple_process_list.bind("<<ListboxSelect>>", self._simple_process_list_changed)
 
         self.simple_process_description = tk.Label(
@@ -317,7 +318,7 @@ class ComicFrameStudioApp(SimpleFlowApp):
         )
         self.simple_process_button.grid(row=5, column=0, sticky="ew")
 
-        # Progress is compact and always visible; Cancel only appears during work.
+        # Compact progress. Cancel only exists while work is running.
         progress_row = tk.Frame(shell, bg=BG)
         progress_row.pack(fill="x", pady=(14, 0))
         progress_text = tk.Frame(progress_row, bg=BG)
@@ -348,9 +349,8 @@ class ComicFrameStudioApp(SimpleFlowApp):
             style="Cancel.TButton",
             command=self._stop_clicked,
         )
-        # Hidden until processing starts.
 
-        # Result is intentionally absent until a result exists.
+        # Result is absent until a result exists.
         self.simple_result = tk.Frame(
             shell,
             bg="#131d18",
@@ -423,7 +423,6 @@ class ComicFrameStudioApp(SimpleFlowApp):
         self.simple_process_info_var.set(process_description(canonical))
 
     def _simple_process_changed(self, _event=None) -> None:
-        # Compatibility path for engine code that updates simple_process_var.
         canonical = self.simple_process_var.get()
         self.simple_selected_title_var.set(process_display_name(canonical))
         self.simple_process_meta_var.set(process_meta(canonical))
@@ -546,7 +545,7 @@ class ComicFrameStudioApp(SimpleFlowApp):
         if enabled:
             try:
                 if not self.simple_result.winfo_manager():
-                    self.simple_result.pack(fill="x", pady=(14, 0), before=None)
+                    self.simple_result.pack(fill="x", pady=(14, 0))
             except Exception:
                 pass
         else:
@@ -554,11 +553,12 @@ class ComicFrameStudioApp(SimpleFlowApp):
 
     # ---------- Profile metadata ----------
 
-    def _render_profile(self) -> dict[str, Any]:
+    def _render_profile(self) -> dict[str, object]:
         profile = super()._render_profile()
         shell = profile.setdefault("simple_shell", {})
-        shell["interface_version"] = INTERFACE_VERSION
-        shell["layout"] = "responsive preview + visible process browser"
+        if isinstance(shell, dict):
+            shell["interface_version"] = INTERFACE_VERSION
+            shell["layout"] = "responsive preview + visible process browser"
         profile["app_version"] = INTERFACE_VERSION
         return profile
 
