@@ -1,80 +1,118 @@
 # ComicFrame Studio
 
-ComicFrame Studio is a local desktop application for turning ordinary video into source-faithful AI-stylized animation through an AUTOMATIC1111/Forge-compatible Stable Diffusion WebUI API.
+ComicFrame Studio is a local desktop app that turns ordinary video into aggressively stylized animation through an AUTOMATIC1111/Forge-compatible Stable Diffusion WebUI API.
 
-**Current stable runtime: v2.9.1 · Stability Seal**
+**Current product runtime: v3.5 · Simple Product Consolidation**
 
-The source video is never overwritten. ComicFrame extracts frames into a project directory, renders resumable styled PNGs, and creates a separate `FINAL_STYLED.mp4`.
+The public workflow is intentionally small:
 
-## What the current runtime does
+```text
+choose video
+→ choose look
+→ optional ControlNet structure rail
+→ choose steps
+→ PROCESS VIDEO
+→ open result
+```
 
-ComicFrame is no longer a simple frame-by-frame img2img batcher. The current stack coordinates:
+Everything else—shot detection, reference locking, subject continuity, temporal transport, adaptive rendering, cache safety, VFR reconstruction, audio restoration, and backend compatibility—is engine-owned.
 
-- automatic shot detection and per-shot art direction
-- Canny ControlNet structural locking
-- shot-local reference locking with IP-Adapter/reference-only capability detection and Shot Memory fallback
-- cross-shot recurring Subject Library references
-- pre-diffusion Shot Memory
-- optical-flow temporal transport after diffusion
-- adaptive per-shot inference resolution and diffusion steps
-- one-click AutoPilot planning/probing/rendering
-- cached project thumbnails, previews and selective rerendering
-- exact source-content identity and safe resume invalidation
-- variable-frame-rate timing preservation
-- measured render telemetry and rough ETA
-- bounded transient WebUI retry and OOM downgrade behavior
-- crash-safe final media replacement
+## What v3.5 changes
+
+v3.5 consolidates the product around one canonical shell instead of stacking a new UI class for every release.
+
+Production now enters through:
+
+```text
+app.py
+  → comicframe_product.py
+      → comicframe_simple.py
+          → mature engine stack
+```
+
+`comicframe_product.py` owns only the public experience and render-policy bridge. `comicframe_style_library.py` owns public style registration. Engine modules stay independent.
+
+The old `interface → presence → aggro → style_overhaul` application inheritance ladder is retired.
+
+## Public controls
+
+Normal use exposes only:
+
+- **Look** — searchable style/process library
+- **ControlNet** — on/off structural rail
+- **Steps** — 12–36, default 24
+- **Process Video**
+
+Aggressive redraw is the baseline policy. There is no AGGRO toggle.
+
+The app remembers the last selected Look, ControlNet choice, and Steps between launches.
+
+## Functional behavior
+
+The simple product shell includes:
+
+- source/result preview
+- searchable style browser
+- automatic shot-aware sequence treatments
+- live rendered-frame preview during processing
+- elapsed-time processing heartbeat
+- compact cancel action
+- result actions for open, show in folder, save copy, and copy path
+- primary action gating until a real source file exists
+- non-destructive output naming beside the source video
+
+The source video is never overwritten.
 
 ## Production pipeline
 
 ```text
 source video
     ↓
-exact source fingerprint + project ownership check
+source fingerprint + project ownership validation
     ↓
-ffmpeg frame extraction + original frame timing capture
+ffmpeg frame extraction + source timing capture
     ↓
-shot analysis / treatment / recurring-subject plan
+shot analysis / treatment
     ↓
-current source frame
-    + transported Shot Memory
-    + shot/project reference conditioning
+source frame
+    + Shot Memory
+    + reference / subject conditioning
     ↓
 Stable Diffusion img2img
-    + untouched-source Canny ControlNet
+    + optional source Canny ControlNet
     ↓
-deterministic graphic/style finishing
+deterministic style finishing
     ↓
 optical-flow temporal stabilization
     ↓
-validated resumable styled PNG
+validated styled PNG cache
     ↓
-VFR-aware video reassembly
+VFR-aware video reconstruction
     ↓
-original audio restoration
+source audio restoration
     ↓
-validated atomic FINAL_STYLED.mp4
+validated final MP4
 ```
 
-The structural source sent to Canny remains the current untouched source frame. Style memory and reference conditioning do not replace source geometry.
+ControlNet always uses the current source frame for geometry. Turning ControlNet off removes that structural unit; continuity systems remain engine-owned.
 
 ## Quick start
 
 ### 1. Start Stable Diffusion WebUI
 
-Use Forge or AUTOMATIC1111 with its API enabled. For the normal production path, install `sd-webui-controlnet` plus a Canny model compatible with the selected checkpoint family.
+Use Forge or AUTOMATIC1111 with API access enabled.
 
-ComicFrame capability-detects the WebUI rather than assuming one fixed ControlNet/IP-Adapter installation.
+For ControlNet mode, install `sd-webui-controlnet` and a compatible Canny model. ComicFrame capability-detects the local backend rather than assuming one fixed model name.
 
 ### 2. Launch ComicFrame
 
-On Windows:
+Windows:
 
 ```bat
 run_comicframe_studio.bat
 ```
 
-Or with Python:
+Or:
 
 ```bash
 python app.py
@@ -82,146 +120,142 @@ python app.py
 
 Python dependencies are listed in `requirements.txt`. `ffmpeg` and `ffprobe` must be available on PATH.
 
-### 3. Choose a source and project directory
+### 3. Process
 
-Use a dedicated ComicFrame project directory. v2.9+ writes a `.comicframe_project.json` ownership marker and refuses to destructively manage an ambiguous folder containing unrelated `frames/`, `cache/`, `subjects/`, or similarly named generated paths.
+1. **CHOOSE VIDEO**
+2. choose a Look
+3. leave **ControlNet** on for a loose structural rail, or turn it off for freer redraw
+4. choose Steps
+5. **PROCESS VIDEO**
+6. open the result
 
-### 4. Analyze and render
+Project/cache storage is derived from the source automatically.
 
-Easy Mode is the intended default surface:
+## Style library
 
-1. choose the source video
-2. choose treatment / performance mode
-3. **Analyze Shots** or use **AutoPilot**
-4. inspect Quick Look / shot previews if desired
-5. **RENDER VIDEO**
+The public library combines shot-aware sequences with aggressive single-style passes. Current examples include:
 
-Completed compatible frames are reused. Timeline/reference/subject/render-plan changes invalidate only the affected work when possible.
+- Graphic Shock
+- Cyberpunk Print
+- Toxic Xerox
+- Photocopier Riot
+- Newsprint Panic
+- Bootleg Anime Print
+- Street Poster Melt
+- Chrome Nightmare
+- Dead Channel
+- Acid Cathedral
+- Synthetic Fever
+- Neon Ruin
+- Memory Burn
+- Paranoid Broadcast
+- Heavy Gouache
+- Ink Brutalism
+- Pastel Nightmare
+- Pulp Oil
+- Storybook Ruin
+- Charred Sketch
+- Neo-Noir
+- Manga Motion
+- Risograph Zine
+- VHS Horror
+- Signal Rupture
+- Watercolor Wash
+- Clean Graphic Novel
 
-## Stability and resume guarantees
-
-The v2.8 → v2.9.1 audit series tightened the project boundary substantially:
-
-- new projects use a full-file SHA-256 source fingerprint
-- legacy v2.8 caches are decoded-frame checked before migration
-- changing source/project inside one running app clears process-local timeline, subject, flow and memory state
-- source files are checked for mutation during extraction and reverified before final assembly
-- corrupt cached PNGs are rejected instead of silently skipped as complete
-- generated directory and frame symlinks are refused
-- manifest filenames are path-confined, including Windows reserved device names
-- ControlNet one-unit configurations keep Canny and fall back to Shot Memory rather than overflowing unit capacity
-- transient WebUI 429/5xx/connection failures retry a bounded number of times
-- OOM remains handled by the adaptive low-resolution retry path rather than generic retries
-- final video files are encoded to temporary files, probed, then atomically replace the previous output only after validation
-- configuration controls are locked while a worker job is active
-
-## Timing and rotated video
-
-ComicFrame stores the decoded source-frame timing under the project cache. Variable-frame-rate clips are assembled from per-frame durations instead of being flattened to one average FPS.
-
-Display dimensions come from the extracted pixels, so phone footage with rotation metadata uses the geometry the renderer actually sees rather than blindly trusting coded stream dimensions.
+The browser is searchable because the library is intentionally large.
 
 ## Project layout
 
-A typical project contains:
+A typical generated project contains:
 
 ```text
-project/
+<source>_comicframe/
   .comicframe_project.json
   source_info.json
   comicframe_timeline.json
-  comicframe_timeline.rendered.json
   comicframe_profile.json
   frames/
   styled_frames/
-  test_frames/
   subjects/
   shot_memory/
   previews/
   cache/
-    analysis/
-    flow/
-    timing/
-    render_intelligence/
-    autopilot/
   styled_silent.mp4
   FINAL_STYLED.mp4
 ```
 
-Generated state is deliberately contained inside the project directory.
+Generated state is contained inside the owned project directory.
 
-## Major subsystems
+## Architecture
 
-- `comicframe_director.py` — shot detection, treatments and per-frame art direction
+### Product
+
+- `app.py` — stable launcher
+- `comicframe_product.py` — single public UI + public render-policy bridge
+- `comicframe_style_library.py` — curated style registration and aggressive redraw baseline
+- `comicframe_simple.py` — one-button video processing boundary over the engine
+
+### Engine
+
+- `comicframe_director.py` — shot detection and treatments
 - `comicframe_reference_lock.py` — shot-local reference conditioning
-- `comicframe_subjects.py` — recurring cross-shot subjects
+- `comicframe_subjects.py` — recurring subjects across cuts
 - `comicframe_shot_memory.py` — pre-diffusion temporal/style memory
 - `comicframe_optical_flow.py` — post-diffusion temporal transport
-- `comicframe_efficiency.py` — adaptive render intelligence and flow caching
-- `comicframe_autopilot.py` — one-click orchestration and verification
-- `comicframe_runtime_v28.py` — preserved v2.8 hardening compatibility boundary
-- `comicframe_runtime_v29.py` — media integrity, VFR assembly, retry and ETA audit layer
-- `comicframe_stability.py` — v2.9.1 process lifecycle/source-finalization seal
-- `comicframe_media.py` — pure media/project integrity helpers
-- `comicframe_manifest_safety.py` — persisted-path confinement helpers
-- `app.py` — intentionally small stable launcher
+- `comicframe_efficiency.py` — adaptive render intelligence
+- `comicframe_autopilot.py` — automatic orchestration
+- `comicframe_webui_contract.py` — Forge/A1111 capability contract
+- `comicframe_media.py` — project/media integrity
+- `comicframe_manifest_safety.py` — persisted-path confinement
+- `comicframe_runtime_v28.py`, `comicframe_runtime_v29.py`, `comicframe_stability.py`, `comicframe_usability.py` — hardened engine compatibility/audit boundaries
 
-## Preview tools
+The versioned engine compatibility modules are intentionally retained because they carry audited media/resume behavior. Product-shell version layers are not.
 
-The workspace includes:
+## CI
 
-- Quick Look contact sheet
-- per-shot preview
-- contiguous Sequence Preview
-- original-vs-styled sequence comparison video
-- Compare Looks contact sheet
-- selected-shot rerender
-- use-original bypass
-- copy/paste/reset look controls
+The repository uses one GitHub Actions workflow.
 
-## Reference and subject behavior
+It:
 
-For shot-local consistency, Auto mode prefers:
+- compiles the repository
+- imports the canonical product and major engine modules
+- runs the full pytest regression suite
+- smoke-checks ControlNet payload compatibility
+- verifies the public style registry
 
-```text
-compatible IP-Adapter
-→ ControlNet reference-only
-→ built-in Shot Memory fallback
-```
+Workflow concurrency cancels superseded runs so a multi-file change does not create another queue storm.
 
-If the WebUI exposes only one ControlNet unit, ComicFrame reserves it for Canny structural guidance and uses Shot Memory for identity/style continuity.
+## Safety / resume guarantees
 
-Recurring Subject Library assignments intentionally survive cuts; temporal Shot Memory does not.
+ComicFrame retains the hardened engine behavior from the v2.8–v2.9 audit series:
 
-## Performance
+- full-file source fingerprints
+- strict generated-project ownership
+- corrupt cached PNG rejection
+- symlink/path-confinement checks
+- bounded transient WebUI retries
+- adaptive OOM handling
+- atomic validated final-media replacement
+- source mutation checks
+- VFR timing preservation
+- selective compatible-frame reuse
 
-Render Intelligence supports Fast, Balanced and Quality project modes. It analyzes source motion/detail and requested artistic pressure to choose per-shot inference work instead of spending the same GPU budget on every frame.
+See `KNOWN_ISSUES.md` for current non-blocking debt.
 
-Raw optical-flow results are cached and reused. Persistent flow cache size is bounded. Repeated reference-image base64 encoding is also bounded and cached in-process in v2.9.1.
+## Engine documentation
 
-## Tests
-
-The repository has dedicated CI for the core renderer, WebUI contract, Shot Memory, Shot Director, Reference Lock, Project Workspace, Render Intelligence, Subject Library, AutoPilot, runtime hardening and the second stability audit.
-
-The second-audit suite covers source fingerprinting, VFR timing, `0/0` FPS metadata, 7-digit frame numbering, corrupt/symlinked PNG rejection, project ownership, manifest confinement, ControlNet unit capacity, retry classification, ETA formatting, stable entrypoint routing, project-context reset, source-finalization checks and resume-profile migration.
-
-## Limitations and maintenance debt
-
-See [KNOWN_ISSUES.md](KNOWN_ISSUES.md). These are current non-blocking limitations/architecture debt rather than known silent-corruption paths.
-
-## More documentation
-
-- [PROJECT_WORKSPACE.md](PROJECT_WORKSPACE.md)
-- [AUTOPILOT.md](AUTOPILOT.md)
-- [DIRECTOR.md](DIRECTOR.md)
-- [REFERENCE_LOCK.md](REFERENCE_LOCK.md)
-- [SUBJECT_LIBRARY.md](SUBJECT_LIBRARY.md)
-- [SHOT_MEMORY.md](SHOT_MEMORY.md)
-- [OPTICAL_FLOW.md](OPTICAL_FLOW.md)
-- [EFFICIENCY.md](EFFICIENCY.md)
-- [CONTROLNET.md](CONTROLNET.md)
-- [WEBUI_CONTRACT.md](WEBUI_CONTRACT.md)
-- [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-- [AUDIT.md](AUDIT.md)
-- [ROADMAP.md](ROADMAP.md)
-- [CHANGELOG_V291.md](CHANGELOG_V291.md)
+- `PROJECT_WORKSPACE.md`
+- `AUTOPILOT.md`
+- `DIRECTOR.md`
+- `REFERENCE_LOCK.md`
+- `SUBJECT_LIBRARY.md`
+- `SHOT_MEMORY.md`
+- `OPTICAL_FLOW.md`
+- `EFFICIENCY.md`
+- `CONTROLNET.md`
+- `WEBUI_CONTRACT.md`
+- `TROUBLESHOOTING.md`
+- `AUDIT.md`
+- `ROADMAP.md`
+- `CHANGELOG.md`

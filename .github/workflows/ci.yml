@@ -2,230 +2,79 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
+concurrency:
+  group: comicframe-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  syntax:
+  test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install Python dependencies
-        run: python -m pip install -r requirements.txt
-      - name: Compile Python sources
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pytest
+      - name: Compile repository
         run: python -m compileall -q .
-      - name: Import canonical runtime
-        run: python -c "import app, comicframe_app, comicframe_ui, comicframe_studio, comicframe_fx, comicframe_controlnet, comicframe_controlnet_compat, comicframe_preflight, comicframe_video_lock, comicframe_styles, comicframe_artistic, comicframe_optical_flow"
-      - name: Smoke-test ControlNet v3 payload enums
+      - name: Import canonical product and engine
+        run: |
+          python - <<'PY'
+          import app
+          import comicframe_product
+          import comicframe_simple
+          import comicframe_runtime_v28
+          import comicframe_runtime_v29
+          import comicframe_stability
+          import comicframe_usability
+          import comicframe_reference_lock
+          import comicframe_subjects
+          import comicframe_shot_memory
+          import comicframe_optical_flow
+          import comicframe_efficiency
+          import comicframe_autopilot
+          import comicframe_webui_contract
+          assert app.ComicFrameStudioApp is comicframe_product.ComicFrameStudioApp
+          assert app.main.__module__ == "comicframe_product"
+          PY
+      - name: Run regression suite
+        run: python -m pytest -q
+      - name: Smoke ControlNet payload compatibility
         run: |
           python - <<'PY'
           from comicframe_controlnet_compat import normalize_controlnet_payload
-
-          payload = {
-              'alwayson_scripts': {
-                  'controlnet': {
-                      'args': [{
-                          'control_mode': 0,
-                          'resize_mode': 0,
-                      }]
-                  }
-              }
-          }
+          payload = {"alwayson_scripts": {"controlnet": {"args": [{"control_mode": 0, "resize_mode": 0}]}}}
           normalize_controlnet_payload(payload)
-          unit = payload['alwayson_scripts']['controlnet']['args'][0]
-          assert unit['control_mode'] == 'Balanced', unit
-          assert unit['resize_mode'] == 'Just Resize', unit
+          unit = payload["alwayson_scripts"]["controlnet"]["args"][0]
+          assert unit["control_mode"] == "Balanced"
+          assert unit["resize_mode"] == "Just Resize"
           PY
-      - name: Smoke-test style packs
+      - name: Smoke public style registry
         run: |
           python - <<'PY'
-          from pathlib import Path
-          from PIL import Image
-          from comicframe_styles import STYLE_PACKS, PUBLIC_STYLE_PRESETS, apply_style_finish
-
-          required = {
-              'Clean Graphic Novel', 'Neo-Noir', 'Cyberpunk Print', 'Pulp Horror',
-              'Retro 70s Print', 'Manga Motion', 'Dream Collapse',
-              'Corporate Propaganda', 'Analog Broadcast', 'Video Fidelity · RTX 3060'
-          }
-          assert required.issubset(STYLE_PACKS), sorted(required - set(STYLE_PACKS))
-          assert set(STYLE_PACKS) == set(PUBLIC_STYLE_PRESETS)
-          for name, pack in STYLE_PACKS.items():
-              assert 0.0 <= pack.control_weight <= 2.0, name
-              assert 0.0 <= pack.guidance_end <= 1.0, name
-              assert 0.0 <= pack.temporal_strength <= 0.75, name
-              assert 0.0 <= pack.fx <= 1.0, name
-              assert pack.steps > 0, name
-
-          path = Path('/tmp/comicframe_style_smoke.png')
-          Image.new('RGB', (160, 90), (180, 80, 40)).save(path)
-          before = Image.open(path).copy()
-          apply_style_finish(path, 'Neo-Noir', 1)
-          after = Image.open(path).convert('RGB')
-          assert after.size == before.size
-          r, g, b = after.getpixel((20, 20))
-          assert r == g == b, (r, g, b)
-          PY
-      - name: Smoke-test v1.8 artistic expansion
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          from PIL import Image, ImageChops
+          import comicframe_simple as simple
           import comicframe_styles as styles
-          from comicframe_artistic import (
-              ARTISTIC_STYLE_PACKS,
-              STYLE_CATEGORIES,
-              STYLE_STABILITY,
-              register_artistic_expansion,
-          )
+          import comicframe_style_library as library
 
-          register_artistic_expansion()
-          required = {
-              'Watercolor Wash', 'Oil Impasto', 'Charcoal Study', 'VHS Horror',
-              'Risograph Zine', 'Glitch Collapse', 'Liminal Haze', 'Luxury Ad',
-              'Hero Tech Promo', 'Clean Ecommerce', 'Signal Rupture'
-          }
-          assert required.issubset(styles.STYLE_PACKS), sorted(required - set(styles.STYLE_PACKS))
-          assert len(ARTISTIC_STYLE_PACKS) == 30, len(ARTISTIC_STYLE_PACKS)
-          assert len(styles.STYLE_PACKS) >= 44, len(styles.STYLE_PACKS)
-          assert set(styles.STYLE_PACKS).issubset(STYLE_CATEGORIES), set(styles.STYLE_PACKS) - set(STYLE_CATEGORIES)
-          assert set(styles.STYLE_PACKS).issubset(STYLE_STABILITY), set(styles.STYLE_PACKS) - set(STYLE_STABILITY)
-
-          for name, pack in ARTISTIC_STYLE_PACKS.items():
+          library.register_style_library()
+          catalog = simple.simple_process_catalog()
+          assert len(catalog) >= 55
+          assert "Toxic Xerox" in catalog
+          assert "Chrome Nightmare" in catalog
+          assert styles.STYLE_PACKS["Chrome Nightmare"].finish == "albumart"
+          assert styles.STYLE_PACKS["Neon Ruin"].finish == "glitchcollapse"
+          for name in catalog:
+              if name in simple.SEQUENCE_PROCESSES:
+                  continue
+              pack = styles.STYLE_PACKS[name]
               assert 0.0 <= pack.denoise <= 0.95, name
-              assert 0.0 <= pack.control_weight <= 2.0, name
+              assert 0.0 <= pack.fx <= 1.0, name
               assert 0.0 <= pack.guidance_end <= 1.0, name
-              assert 0.0 <= pack.temporal_strength <= 0.75, name
-              assert pack.finish != 'none', name
-
-          source = Path('/tmp/artistic_source.png')
-          one = Path('/tmp/artistic_one.png')
-          two = Path('/tmp/artistic_two.png')
-          Image.new('RGB', (192, 108), (150, 75, 210)).save(source)
-          Image.open(source).save(one)
-          Image.open(source).save(two)
-          styles.apply_style_finish(one, 'Signal Rupture', 11)
-          styles.apply_style_finish(two, 'Signal Rupture', 11)
-          diff = ImageChops.difference(Image.open(one).convert('RGB'), Image.open(two).convert('RGB'))
-          assert diff.getbbox() is None, 'Signal Rupture must be deterministic for the same frame number'
-
-          Image.open(source).save(one)
-          styles.apply_style_finish(one, 'Watercolor Wash', 3)
-          assert Image.open(one).size == (192, 108)
-          PY
-      - name: Smoke-test v1.9 optical-flow temporal transport
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import numpy as np
-          from PIL import Image
-          from comicframe_optical_flow import FLOW_FAST, OpticalFlowTemporalMixin
-          from comicframe_video_lock import ControlNetFirstVideoMixin
-
-          class Harness(OpticalFlowTemporalMixin, ControlNetFirstVideoMixin):
-              pass
-
-          class Var:
-              def __init__(self, value): self.value = value
-              def get(self): return self.value
-              def set(self, value): self.value = value
-
-          root = Path('/tmp/comicframe_flow_smoke')
-          frames = root / 'frames'
-          styled = root / 'styled_frames'
-          frames.mkdir(parents=True, exist_ok=True)
-          styled.mkdir(parents=True, exist_ok=True)
-
-          rng = np.random.default_rng(1234)
-          prev = rng.integers(0, 256, size=(96, 160, 3), dtype=np.uint8)
-          cur = np.zeros_like(prev)
-          cur[:, 6:] = prev[:, :-6]
-          Image.fromarray(prev, 'RGB').save(frames / 'frame_000001.png')
-          Image.fromarray(cur, 'RGB').save(frames / 'frame_000002.png')
-
-          prior_style = np.zeros_like(prev)
-          prior_style[..., 0] = 240
-          current_style = np.zeros_like(prev)
-          current_style[..., 2] = 240
-          Image.fromarray(prior_style, 'RGB').save(styled / 'frame_000001.png')
-          Image.fromarray(current_style, 'RGB').save(styled / 'frame_000002.png')
-
-          obj = object.__new__(Harness)
-          obj.temporal_engine_var = Var(FLOW_FAST)
-          obj.temporal_enabled_var = Var(True)
-          obj.temporal_strength_var = Var(0.50)
-          obj.temporal_motion_var = Var(0.08)
-          obj.temporal_cut_var = Var(0.22)
-          obj.flow_confidence_var = Var(0.05)
-          obj._flow_fallback_logged = False
-          obj._log = lambda *_: None
-          obj._temporal_lock(frames / 'frame_000002.png', styled / 'frame_000002.png', 2)
-
-          result = np.asarray(Image.open(styled / 'frame_000002.png').convert('RGB'))
-          center = result[48, 80]
-          assert center[0] > 20, center
-          assert center[2] < 240, center
-
-          flow, confidence = obj._estimate_transport(
-              np.asarray(Image.open(frames / 'frame_000001.png').convert('L')),
-              np.asarray(Image.open(frames / 'frame_000002.png').convert('L')),
-              quality=False,
-              confidence_floor=0.05,
-          )
-          assert flow.shape == (96, 160, 2), flow.shape
-          assert float(confidence[20:-20, 20:-20].mean()) > 0.10, confidence.mean()
-          PY
-      - name: Smoke-test graphic print finish
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          from PIL import Image, ImageDraw
-          from comicframe_fx import GraphicFXSettings, apply_graphic_fx
-
-          path = Path('/tmp/comicframe_fx_smoke.png')
-          im = Image.new('RGB', (320, 180), 'white')
-          draw = ImageDraw.Draw(im)
-          draw.rectangle((30, 30, 150, 150), fill=(35, 90, 220))
-          draw.ellipse((170, 35, 285, 150), fill=(230, 70, 90))
-          im.save(path)
-          apply_graphic_fx(path, GraphicFXSettings(enabled=True, intensity=0.85), frame_number=1)
-          out = Image.open(path)
-          assert out.size == (320, 180)
-          assert out.mode == 'RGB'
-          PY
-      - name: Smoke-test motion-aware temporal lock
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          from PIL import Image
-          from comicframe_video_lock import ControlNetFirstVideoMixin
-
-          class Var:
-              def __init__(self, value): self.value = value
-              def get(self): return self.value
-
-          root = Path('/tmp/comicframe_temporal_smoke')
-          frames = root / 'frames'
-          styled = root / 'styled_frames'
-          frames.mkdir(parents=True, exist_ok=True)
-          styled.mkdir(parents=True, exist_ok=True)
-
-          Image.new('RGB', (96, 64), (100, 100, 100)).save(frames / 'frame_000001.png')
-          Image.new('RGB', (96, 64), (100, 100, 100)).save(frames / 'frame_000002.png')
-          Image.new('RGB', (96, 64), (255, 0, 0)).save(styled / 'frame_000001.png')
-          Image.new('RGB', (96, 64), (0, 0, 255)).save(styled / 'frame_000002.png')
-
-          obj = object.__new__(ControlNetFirstVideoMixin)
-          obj.temporal_enabled_var = Var(True)
-          obj.temporal_strength_var = Var(0.35)
-          obj.temporal_motion_var = Var(0.08)
-          obj.temporal_cut_var = Var(0.22)
-          obj._log = lambda *_: None
-          obj._temporal_lock(frames / 'frame_000002.png', styled / 'frame_000002.png', 2)
-
-          pixel = Image.open(styled / 'frame_000002.png').getpixel((10, 10))
-          assert pixel[0] > 0, pixel
-          assert pixel[2] < 255, pixel
+              assert "decisive authored reinterpretation" in pack.prompt, name
           PY
