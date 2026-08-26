@@ -8,7 +8,7 @@ import pytest
 from PIL import Image
 
 import app
-from comicframe_style_overhaul import ComicFrameStudioApp
+from comicframe_product import ComicFrameStudioApp
 from comicframe_hardening import sampled_file_sha256
 from comicframe_media import (
     FULL_FINGERPRINT_ALGO,
@@ -38,7 +38,7 @@ class FakeVar:
 
 def test_stable_app_entrypoint_exports_sealed_runtime():
     assert app.ComicFrameStudioApp is ComicFrameStudioApp
-    assert app.main.__module__ == "comicframe_style_overhaul"
+    assert app.main.__module__ == "comicframe_product"
 
 
 def test_second_audit_does_not_add_a_feature_mixin():
