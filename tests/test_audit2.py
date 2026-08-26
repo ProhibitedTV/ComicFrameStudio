@@ -22,7 +22,7 @@ from comicframe_media import (
     validate_png,
     write_ffconcat,
 )
-from comicframe_stability import ComicFrameStudioApp
+from comicframe_usability import ComicFrameStudioApp
 
 
 class FakeVar:
@@ -38,7 +38,7 @@ class FakeVar:
 
 def test_stable_app_entrypoint_exports_sealed_runtime():
     assert app.ComicFrameStudioApp is ComicFrameStudioApp
-    assert app.main.__module__ == "comicframe_stability"
+    assert app.main.__module__ == "comicframe_usability"
 
 
 def test_second_audit_does_not_add_a_feature_mixin():
