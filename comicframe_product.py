@@ -88,10 +88,20 @@ def save_preferences(data: dict[str, Any], path: Path | None = None) -> Path:
 
 
 def filter_processes(query: str) -> list[str]:
+    """Search Looks with direct name matches taking precedence over metadata hits."""
     needle = " ".join(str(query or "").lower().split())
     values = simple.simple_process_catalog()
     if not needle:
         return values
+    parts = needle.split()
+
+    name_matches = [
+        name for name in values
+        if all(part in name.lower() for part in parts)
+    ]
+    if name_matches:
+        return name_matches
+
     found: list[str] = []
     for name in values:
         category = artistic.STYLE_CATEGORIES.get(
@@ -103,7 +113,7 @@ def filter_processes(query: str) -> list[str]:
             "shot progression" if name in simple.SEQUENCE_PROCESSES else "Medium",
         )
         haystack = f"{name} {category} {stability} {simple.process_description(name)}".lower()
-        if all(part in haystack for part in needle.split()):
+        if all(part in haystack for part in parts):
             found.append(name)
     return found
 
