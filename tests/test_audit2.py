@@ -8,6 +8,7 @@ import pytest
 from PIL import Image
 
 import app
+from comicframe_aggro import ComicFrameStudioApp
 from comicframe_hardening import sampled_file_sha256
 from comicframe_media import (
     FULL_FINGERPRINT_ALGO,
@@ -22,7 +23,6 @@ from comicframe_media import (
     validate_png,
     write_ffconcat,
 )
-from comicframe_presence import ComicFrameStudioApp
 
 
 class FakeVar:
@@ -38,7 +38,7 @@ class FakeVar:
 
 def test_stable_app_entrypoint_exports_sealed_runtime():
     assert app.ComicFrameStudioApp is ComicFrameStudioApp
-    assert app.main.__module__ == "comicframe_presence"
+    assert app.main.__module__ == "comicframe_aggro"
 
 
 def test_second_audit_does_not_add_a_feature_mixin():
@@ -100,8 +100,6 @@ def test_full_fingerprint_catches_edit_outside_old_sample_windows(tmp_path: Path
     path.write_bytes(b"A" * size)
     sampled_before = sampled_file_sha256(path)
     full_before = full_file_sha256(path)
-    # 1.5 MiB sits between the first and second 1 MiB windows in the old
-    # nine-sample scheme for a 20 MiB file.
     with path.open("r+b") as handle:
         handle.seek(1536 * 1024)
         handle.write(b"B" * 4096)

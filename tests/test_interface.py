@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import app
+import comicframe_aggro as aggro
 import comicframe_interface as interface
 import comicframe_presence as presence
 import comicframe_simple as simple
 
 
-def test_stable_entrypoint_keeps_v31_interface_under_presence_shell():
-    assert app.ComicFrameStudioApp is presence.ComicFrameStudioApp
-    assert app.main.__module__ == "comicframe_presence"
+def test_stable_entrypoint_keeps_v31_interface_under_presence_and_aggro_shells():
+    assert app.ComicFrameStudioApp is aggro.ComicFrameStudioApp
+    assert app.main.__module__ == "comicframe_aggro"
+    assert issubclass(app.ComicFrameStudioApp, presence.ComicFrameStudioApp)
     assert issubclass(app.ComicFrameStudioApp, interface.ComicFrameStudioApp)
 
 
