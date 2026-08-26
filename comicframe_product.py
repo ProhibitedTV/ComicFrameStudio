@@ -79,7 +79,10 @@ def save_preferences(data: dict[str, Any], path: Path | None = None) -> Path:
     target = Path(path) if path is not None else preferences_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     temp = target.with_suffix(target.suffix + ".tmp")
-    temp.write_text(json.dumps(normalize_preferences(data), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temp.write_text(
+        json.dumps(normalize_preferences(data), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     os.replace(temp, target)
     return target
 
@@ -91,8 +94,14 @@ def filter_processes(query: str) -> list[str]:
         return values
     found: list[str] = []
     for name in values:
-        category = artistic.STYLE_CATEGORIES.get(name, "Sequence" if name in simple.SEQUENCE_PROCESSES else "Style")
-        stability = artistic.STYLE_STABILITY.get(name, "shot progression" if name in simple.SEQUENCE_PROCESSES else "Medium")
+        category = artistic.STYLE_CATEGORIES.get(
+            name,
+            "Sequence" if name in simple.SEQUENCE_PROCESSES else "Style",
+        )
+        stability = artistic.STYLE_STABILITY.get(
+            name,
+            "shot progression" if name in simple.SEQUENCE_PROCESSES else "Medium",
+        )
         haystack = f"{name} {category} {stability} {simple.process_description(name)}".lower()
         if all(part in haystack for part in needle.split()):
             found.append(name)
@@ -114,10 +123,12 @@ def aggressive_render_parameters(style_name: str, controlnet_enabled: bool) -> d
     pack = styles.STYLE_PACKS.get(style_name)
     if pack is None:
         return {
-            "controlnet_enabled": bool(controlnet_enabled), "denoise": .68,
+            "controlnet_enabled": bool(controlnet_enabled),
+            "denoise": .68,
             "control_weight": .40 if controlnet_enabled else 0.0,
             "guidance_end": .56 if controlnet_enabled else 0.0,
-            "fx": .96, "temporal_strength": .18,
+            "fx": .96,
+            "temporal_strength": .18,
         }
     stability = str(artistic.STYLE_STABILITY.get(style_name, "Medium"))
     if stability == "Experimental":
@@ -158,7 +169,7 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
         self.simple_process_var.set(chosen)
         self.simple_process_info_var.set(simple.process_description(chosen))
 
-         process_row = self.simple_process_combo.master
+        process_row = self.simple_process_combo.master
         process_panel = process_row.master
         search_row = ttk.Frame(process_panel, style="Panel.TFrame")
         search_row.pack(fill="x", pady=(0, 9), before=process_row)
@@ -177,22 +188,41 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
         self.simple_steps_var = tk.IntVar(value=int(prefs["steps"]))
         self.simple_steps_text_var = tk.StringVar(value=f"{int(prefs['steps'])} steps")
         self.simple_controlnet_toggle = ttk.Checkbutton(
-            controls, text="CONTROLNET", variable=self.simple_controlnet_var, command=self._creative_changed,
+            controls,
+            text="CONTROLNET",
+            variable=self.simple_controlnet_var,
+            command=self._creative_changed,
         )
         self.simple_controlnet_toggle.pack(side="left")
         ttk.Label(controls, text="STEPS", style="Muted.TLabel").pack(side="left", padx=(18, 6))
         self.simple_steps_scale = tk.Scale(
-            controls, from_=MIN_STEPS, to=MAX_STEPS, orient="horizontal", variable=self.simple_steps_var,
-            command=self._steps_changed, showvalue=False, resolution=1, length=220, highlightthickness=0,
+            controls,
+            from_=MIN_STEPS,
+            to=MAX_STEPS,
+            orient="horizontal",
+            variable=self.simple_steps_var,
+            command=self._steps_changed,
+            showvalue=False,
+            resolution=1,
+            length=220,
+            highlightthickness=0,
         )
         self.simple_steps_scale.pack(side="left", fill="x", expand=True)
-        ttk.Label(controls, textvariable=self.simple_steps_text_var, style="Muted.TLabel", width=9).pack(side="left", padx=(8, 0))
+        ttk.Label(
+            controls,
+            textvariable=self.simple_steps_text_var,
+            style="Muted.TLabel",
+            width=9,
+        ).pack(side="left", padx=(8, 0))
         self.simple_creative_hint = ttk.Label(shell, text="", style="Muted.TLabel")
         self.simple_creative_hint.pack(fill="x", pady=(5, 0), before=action)
 
         result_actions = self.simple_save_button.master
         self.simple_copy_path_button = ttk.Button(
-            result_actions, text="COPY PATH", command=self._simple_copy_result_path, state="disabled",
+            result_actions,
+            text="COPY PATH",
+            command=self._simple_copy_result_path,
+            state="disabled",
         )
         self.simple_copy_path_button.pack(side="left", padx=(8, 0))
 
@@ -221,7 +251,11 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
     def _creative_changed(self) -> None:
         enabled = bool(self.simple_controlnet_var.get())
         self.simple_creative_hint.configure(
-            text=("Loose structural rail ÷ aggressive redraw stays on" if enabled else "UNLEASHED · no ControlNet structure rail")
+            text=(
+                "Loose structural rail · aggressive redraw stays on"
+                if enabled
+                else "UNLEASHED · no ControlNet structure rail"
+            )
         )
         self._schedule_preference_save()
 
@@ -239,11 +273,14 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
     def _save_preferences_now(self) -> None:
         self._product_preference_job = None
         try:
-            save_preferences({
-                "style": self.simple_process_var.get(),
-                "controlnet": bool(self.simple_controlnet_var.get()),
-                "steps": int(self.simple_steps_var.get()),
-            }, self._product_preferences_path)
+            save_preferences(
+                {
+                    "style": self.simple_process_var.get(),
+                    "controlnet": bool(self.simple_controlnet_var.get()),
+                    "steps": int(self.simple_steps_var.get()),
+                },
+                self._product_preferences_path,
+            )
         except Exception:
             pass
 
@@ -297,12 +334,15 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
         if not self._simple_busy:
             return
         label = str(self.progress_label_var.get() or "")
-        match = re.match(r^\s*\d+\s*/\s*\d+\s*:\s*(frame_(\d+)\.png)", label, re.IGNORECASE)
+        match = re.match(r"^\s*\d+\s*/\s*\d+\s*:\s*(frame_(\d+)\.png)", label, re.IGNORECASE)
         if not match:
             return
         filename, number_text = match.group(1), match.group(2)
         number = int(number_text)
-        if self._presence_last_preview_frame is not None and number - self._presence_last_preview_frame < LIVE_PREVIEW_EVERY:
+        if (
+            self._presence_last_preview_frame is not None
+            and number - self._presence_last_preview_frame < LIVE_PREVIEW_EVERY
+        ):
             return
         try:
             path = Path(self.project_paths()["styled"]) / filename
@@ -394,8 +434,12 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
                 except Exception:
                     pass
         return replace(
-            directed, prompt=prompt, denoise=float(params["denoise"]), steps=steps,
-            controlnet_enabled=enabled, controlnet_weight=float(params["control_weight"]),
+            directed,
+            prompt=prompt,
+            denoise=float(params["denoise"]),
+            steps=steps,
+            controlnet_enabled=enabled,
+            controlnet_weight=float(params["control_weight"]),
         ), saved
 
     def _blend_source_intensity(self, source, output, intensity: float) -> None:
@@ -415,13 +459,15 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
         }
         shell = profile.setdefault("simple_shell", {})
         if isinstance(shell, dict):
-            shell.update({
-                "version": PRODUCT_VERSION,
-                "operator_surface": "video -> look -> controlnet/steps -> video",
-                "engine_controls_hidden": True,
-                "searchable_style_browser": True,
-                "live_preview_every": LIVE_PREVIEW_EVERY,
-            })
+            shell.update(
+                {
+                    "version": PRODUCT_VERSION,
+                    "operator_surface": "video -> look -> controlnet/steps -> video",
+                    "engine_controls_hidden": True,
+                    "searchable_style_browser": True,
+                    "live_preview_every": LIVE_PREVIEW_EVERY,
+                }
+            )
         return profile
 
 
