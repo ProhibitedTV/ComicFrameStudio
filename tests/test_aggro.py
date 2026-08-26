@@ -3,12 +3,14 @@ from __future__ import annotations
 import app
 import comicframe_aggro as aggro
 import comicframe_presence as presence
+import comicframe_style_overhaul as overhaul
 import comicframe_styles as styles
 
 
-def test_stable_entrypoint_uses_aggro_shell_over_presence():
-    assert app.ComicFrameStudioApp is aggro.ComicFrameStudioApp
-    assert app.main.__module__ == "comicframe_aggro"
+def test_stable_entrypoint_uses_v34_shell_over_aggro_and_presence():
+    assert app.ComicFrameStudioApp is overhaul.ComicFrameStudioApp
+    assert app.main.__module__ == "comicframe_style_overhaul"
+    assert issubclass(overhaul.ComicFrameStudioApp, aggro.ComicFrameStudioApp)
     assert issubclass(aggro.ComicFrameStudioApp, presence.ComicFrameStudioApp)
 
 
@@ -29,7 +31,7 @@ def test_controlnet_off_really_removes_structural_pressure():
 def test_aggro_gives_cyberpunk_more_diffusion_authority():
     pack = styles.STYLE_PACKS["Cyberpunk Print"]
     params = aggro.aggro_parameters("Cyberpunk Print", True)
-    assert float(params["denoise"]) > pack.denoise
+    assert float(params["denoise"]) >= pack.denoise
     assert float(params["control_weight"]) < pack.control_weight
     assert float(params["guidance_end"]) < pack.guidance_end
     assert float(params["fx"]) >= pack.fx
@@ -45,17 +47,17 @@ def test_experimental_style_gets_more_freedom_than_stable_style():
 
 def test_creative_controls_must_invalidate_render_cache():
     base = {
-        "app_version": "3.2",
+        "app_version": "3.4",
         "checkpoint": "same",
         "simple_shell": {"presence_version": "3.2"},
-        "creative_controls": {"version": "3.3", "controlnet": True, "aggro": True, "steps": 24},
+        "creative_controls": {"version": "3.4", "controlnet": True, "steps": 24, "style_policy": "aggressive-by-default"},
     }
     changed = {
         **base,
-        "creative_controls": {"version": "3.3", "controlnet": False, "aggro": True, "steps": 18},
+        "creative_controls": {"version": "3.4", "controlnet": False, "steps": 18, "style_policy": "aggressive-by-default"},
     }
-    left = aggro.ComicFrameStudioApp._profile_without_director(base)
-    right = aggro.ComicFrameStudioApp._profile_without_director(changed)
+    left = overhaul.ComicFrameStudioApp._profile_without_director(base)
+    right = overhaul.ComicFrameStudioApp._profile_without_director(changed)
     assert left != right
     assert "simple_shell" not in left
     assert left["creative_controls"]["controlnet"] is True

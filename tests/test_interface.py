@@ -5,11 +5,13 @@ import comicframe_aggro as aggro
 import comicframe_interface as interface
 import comicframe_presence as presence
 import comicframe_simple as simple
+import comicframe_style_overhaul as overhaul
 
 
-def test_stable_entrypoint_keeps_v31_interface_under_presence_and_aggro_shells():
-    assert app.ComicFrameStudioApp is aggro.ComicFrameStudioApp
-    assert app.main.__module__ == "comicframe_aggro"
+def test_stable_entrypoint_keeps_v31_interface_under_v34_shell():
+    assert app.ComicFrameStudioApp is overhaul.ComicFrameStudioApp
+    assert app.main.__module__ == "comicframe_style_overhaul"
+    assert issubclass(app.ComicFrameStudioApp, aggro.ComicFrameStudioApp)
     assert issubclass(app.ComicFrameStudioApp, presence.ComicFrameStudioApp)
     assert issubclass(app.ComicFrameStudioApp, interface.ComicFrameStudioApp)
 
@@ -23,6 +25,8 @@ def test_process_browser_has_unique_short_labels():
     assert "Graphic Shock" in labels
     assert "Clean → Chaos" in labels
     assert "Signal Rupture" in labels
+    assert "Toxic Xerox" in labels
+    assert "Dead Channel" in labels
 
 
 def test_process_browser_keeps_engine_diagnostics_hidden():
