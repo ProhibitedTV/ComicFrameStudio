@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import app
 import comicframe_interface as interface
+import comicframe_presence as presence
 import comicframe_simple as simple
 
 
-def test_stable_entrypoint_uses_v31_interface():
-    assert app.ComicFrameStudioApp is interface.ComicFrameStudioApp
-    assert app.main.__module__ == "comicframe_interface"
+def test_stable_entrypoint_keeps_v31_interface_under_presence_shell():
+    assert app.ComicFrameStudioApp is presence.ComicFrameStudioApp
+    assert app.main.__module__ == "comicframe_presence"
+    assert issubclass(app.ComicFrameStudioApp, interface.ComicFrameStudioApp)
 
 
 def test_process_browser_has_unique_short_labels():
