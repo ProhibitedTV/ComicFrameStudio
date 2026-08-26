@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.6 — Weighted Prompt Hierarchy
+
+### Style authority
+- Added explicit A1111/Forge `(text:weight)` attention to every public non-diagnostic Look.
+- High-stability, Medium, and Experimental Looks now use different style-anchor, redraw, material, continuity, and anti-photo weight budgets.
+- Experimental Looks receive the strongest visual-language and redraw emphasis; continuity stays deliberately lower so identity/action remain readable without overpowering the style.
+- Added weighted negative pressure against photorealistic surface fidelity, literal camera texture, unchanged photographic materials, and weak filter-only stylization.
+- Escapes literal `()[]` before wrapping weighted style anchors so generated prompts remain valid A1111/Forge attention syntax.
+- Bumped the style-library cache version so v3.5 frames cannot be reused under the new prompt-attention policy.
+
 ## v3.5 — Simple Product Consolidation
 
 ### Product architecture

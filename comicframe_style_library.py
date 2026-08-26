@@ -14,12 +14,24 @@ import comicframe_simple as simple
 import comicframe_styles as styles
 from comicframe_styles import StylePack
 
-STYLE_LIBRARY_VERSION = "3.5"
-PUBLIC_TRANSFORM_SUFFIX = (
-    ", decisive authored reinterpretation of the source frame, replace photographic surface texture with the selected medium, "
-    "strong graphic simplification and material transformation, bold lighting and palette decisions, visibly redrawn environment, "
-    "preserve recognizable subject identity, main action, camera direction and broad composition without slavishly copying every source edge"
-)
+STYLE_LIBRARY_VERSION = "3.6"
+PROMPT_WEIGHT_POLICY_VERSION = "1"
+WEIGHTED_PROMPT_MARKER = "radical visual reinterpretation through the selected medium"
+
+
+class PromptWeightProfile(NamedTuple):
+    style_anchor: float
+    redraw: float
+    material: float
+    continuity: float
+    anti_photo: float
+
+
+PROMPT_WEIGHT_PROFILES: dict[str, PromptWeightProfile] = {
+    "High": PromptWeightProfile(1.16, 1.12, 1.10, 1.08, 1.12),
+    "Medium": PromptWeightProfile(1.24, 1.22, 1.18, 1.08, 1.20),
+    "Experimental": PromptWeightProfile(1.34, 1.30, 1.24, 1.06, 1.28),
+}
 
 
 class StyleSpec(NamedTuple):
@@ -66,6 +78,70 @@ def _pack(spec: StyleSpec) -> StylePack:
         finish=spec.finish,
         description=spec.description,
     )
+
+
+def _attention_escape(text: str) -> str:
+    """Escape literal A1111 attention punctuation before wrapping a clause."""
+    escaped = str(text).replace("\\", "\\\\")
+    for token in "()[]":
+        escaped = escaped.replace(token, "\\" + token)
+    return escaped
+
+
+def _weighted_clause(text: str, weight: float) -> str:
+    return f"({_attention_escape(str(text).strip())}:{float(weight):.2f})"
+
+
+def _style_anchor(prompt: str) -> str:
+    """Use the opening visual-language clauses as a compact weighted style anchor."""
+    clauses = [part.strip() for part in str(prompt or "").split(",") if part.strip()]
+    if not clauses:
+        return "authored visual style"
+    return ", ".join(clauses[:3])
+
+
+def weighted_prompt_policy(prompt: str, negative: str, stability: str) -> tuple[str, str]:
+    """Apply Forge/A1111 explicit prompt attention without exposing another UI control.
+
+    A1111/Forge parse ``(text:weight)`` as explicit attention. We keep the
+    original prompt at baseline strength, then reinforce a compact style anchor,
+    redraw/material intent and continuity at intentionally different weights.
+    """
+    positive = str(prompt or "").strip().rstrip(",")
+    negative_out = str(negative or "").strip().rstrip(",")
+    if WEIGHTED_PROMPT_MARKER in positive:
+        return positive, negative_out
+
+    profile = PROMPT_WEIGHT_PROFILES.get(stability, PROMPT_WEIGHT_PROFILES["Medium"])
+    clauses = [
+        positive,
+        _weighted_clause(_style_anchor(positive), profile.style_anchor),
+        _weighted_clause(
+            "decisive authored reinterpretation of the source frame, "
+            "radical visual reinterpretation through the selected medium",
+            profile.redraw,
+        ),
+        _weighted_clause(
+            "replace photographic surface texture with the selected medium, "
+            "strong graphic simplification and material transformation, visibly redrawn environment",
+            profile.material,
+        ),
+        _weighted_clause(
+            "preserve recognizable subject identity, main action, camera direction and broad composition",
+            profile.continuity,
+        ),
+    ]
+    positive_out = ", ".join(part for part in clauses if part)
+
+    if "weak filter-only stylization" not in negative_out:
+        anti_photo = _weighted_clause(
+            "photorealistic surface fidelity, literal camera texture, weak filter-only stylization, "
+            "unchanged photographic materials",
+            profile.anti_photo,
+        )
+        negative_out = f"{negative_out}, {anti_photo}" if negative_out else anti_photo
+
+    return positive_out, negative_out
 
 
 NEW_STYLE_SPECS: dict[str, StyleSpec] = {
@@ -232,9 +308,7 @@ def aggressive_baseline(name: str, pack: StylePack, category: str, stability: st
     else:
         denoise_floor, cn_cap, guidance_cap, fx_floor, temporal_cap = .59, .70, .72, .76, .29
 
-    prompt = str(pack.prompt or "")
-    if "decisive authored reinterpretation" not in prompt:
-        prompt += PUBLIC_TRANSFORM_SUFFIX
+    prompt, negative = weighted_prompt_policy(pack.prompt, pack.negative, stability)
     description = str(pack.description or "Visual process.").rstrip(".")
     if "Aggressive redraw baseline" not in description:
         description += " · Aggressive redraw baseline"
@@ -247,6 +321,7 @@ def aggressive_baseline(name: str, pack: StylePack, category: str, stability: st
         guidance_end=min(float(pack.guidance_end), guidance_cap),
         temporal_strength=min(float(pack.temporal_strength), temporal_cap),
         prompt=prompt,
+        negative=negative,
         description=description + ".",
     )
 
