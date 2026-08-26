@@ -5,7 +5,7 @@ The public contract stays small:
 
     Video -> Style -> [ControlNet] [Aggro] [Steps] -> Process
 
-Everything else remains engine-owned.  Aggro is intentionally a pipeline mode,
+Everything else remains engine-owned. Aggro is intentionally a pipeline mode,
 not a saturation knob: it raises diffusion authority, weakens structural
 pressure, shortens ControlNet guidance, strengthens deterministic finishing and
 reduces source blending while leaving identity/reference continuity available.
@@ -21,7 +21,7 @@ from tkinter import ttk
 import comicframe_styles as styles
 from comicframe_artistic import STYLE_STABILITY
 from comicframe_presence import ComicFrameStudioApp as PresenceApp
-from comicframe_interface import ACCENT, BORDER, CARD, MUTED, TEXT
+from comicframe_interface import ACCENT, CARD, MUTED, TEXT
 
 AGGRO_VERSION = "3.3"
 MIN_STEPS = 12
@@ -34,11 +34,7 @@ def clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
 
 
 def aggro_parameters(style_name: str, controlnet_enabled: bool) -> dict[str, float | bool]:
-    """Return deliberately simple style-freedom parameters for one style.
-
-    Experimental styles get the most freedom. Stable styles still become more
-    illustrative, but retain more structural/temporal pressure.
-    """
+    """Return deliberately simple style-freedom parameters for one style."""
     pack = styles.STYLE_PACKS.get(style_name)
     if pack is None:
         return {
@@ -84,7 +80,6 @@ class ComicFrameStudioApp(PresenceApp):
         self.simple_steps_text_var = tk.StringVar(value=f"{DEFAULT_STEPS} steps")
 
         process_card = self.simple_process_button.master
-        # Make room immediately above the single primary action.
         self.simple_process_button.grid_configure(row=6, pady=(12, 0))
 
         controls = tk.Frame(process_card, bg=CARD)
@@ -156,7 +151,6 @@ class ComicFrameStudioApp(PresenceApp):
             anchor="w",
         )
         self.simple_creative_hint.grid(row=7, column=0, sticky="ew", pady=(7, 0))
-
         self._creative_control_changed()
 
     def _steps_changed(self, value=None) -> None:
@@ -194,19 +188,36 @@ class ComicFrameStudioApp(PresenceApp):
             except Exception:
                 pass
 
-    def _simple_apply_hidden_defaults(self) -> None:
-        super()._simple_apply_hidden_defaults()
-        enabled = bool(self.simple_controlnet_var.get())
+    def _enforce_public_controlnet_choice(self) -> None:
+        """Keep backend auto-detection from silently overriding the public toggle."""
+        var = getattr(self, "simple_controlnet_var", None)
+        if var is None or not hasattr(var, "get"):
+            return
+        enabled = bool(var.get())
         for name, value in (
             ("control_enabled_var", enabled),
             ("control_required_var", enabled),
         ):
-            variable = getattr(self, name, None)
+            target = getattr(self, name, None)
             try:
-                if variable is not None and hasattr(variable, "set"):
-                    variable.set(value)
+                if target is not None and hasattr(target, "set"):
+                    target.set(value)
             except Exception:
                 pass
+
+    def _sync_webui(self):
+        result = super()._sync_webui()
+        self._enforce_public_controlnet_choice()
+        return result
+
+    def _select_controlnet_defaults(self):
+        result = super()._select_controlnet_defaults()
+        self._enforce_public_controlnet_choice()
+        return result
+
+    def _simple_apply_hidden_defaults(self) -> None:
+        super()._simple_apply_hidden_defaults()
+        self._enforce_public_controlnet_choice()
 
     @staticmethod
     def _remember_variable(saved: dict[str, tuple[Any, Any]], obj: Any, name: str) -> None:
@@ -220,8 +231,6 @@ class ComicFrameStudioApp(PresenceApp):
         aggro = bool(self.simple_aggro_var.get())
         steps = max(MIN_STEPS, min(MAX_STEPS, int(self.simple_steps_var.get())))
 
-        # Director already snapshots the style variables it owns. Add the two
-        # structural booleans because v3.3 changes them per render call too.
         for name in ("control_enabled_var", "control_required_var"):
             self._remember_variable(saved, self, name)
         for name in ("control_enabled_var", "control_required_var"):
@@ -241,15 +250,12 @@ class ComicFrameStudioApp(PresenceApp):
             ), saved
 
         params = aggro_parameters(style_name, enabled)
-        prompt = str(directed.prompt or "")
-        prompt += (
+        prompt = str(directed.prompt or "") + (
             ", radical visual reinterpretation through the selected medium, redraw photographic surfaces as authored illustration, "
             "strong material transformation, bold environmental restyling, break literal photo texture, preserve recognizable subject identity, "
             "main action and broad composition rather than slavishly copying every source edge"
         )
 
-        # These variables are read by deeper ControlNet/FX/temporal layers after
-        # Director returns the directed settings.
         for name, value in (
             ("control_weight_var", float(params["control_weight"])),
             ("control_guidance_end_var", float(params["guidance_end"])),
@@ -273,21 +279,21 @@ class ComicFrameStudioApp(PresenceApp):
         ), saved
 
     def _blend_source_intensity(self, source, output, intensity: float) -> None:
-        # Aggro should read as a redraw, not a strong Instagram filter. Push the
-        # final source/result blend almost entirely toward the generated frame.
-        if bool(getattr(self, "simple_aggro_var", None).get()):
+        aggro_var = getattr(self, "simple_aggro_var", None)
+        if aggro_var is not None and hasattr(aggro_var, "get") and bool(aggro_var.get()):
             intensity = clamp(0.58 + 0.46 * float(intensity))
         return super()._blend_source_intensity(source, output, intensity)
 
     def _render_profile(self) -> dict[str, Any]:
         profile = super()._render_profile()
-        # This is intentionally outside simple_shell: unlike UI version metadata,
-        # these knobs materially change pixels and therefore must invalidate cache.
+        control_var = getattr(self, "simple_controlnet_var", None)
+        aggro_var = getattr(self, "simple_aggro_var", None)
+        steps_var = getattr(self, "simple_steps_var", None)
         profile["creative_controls"] = {
             "version": AGGRO_VERSION,
-            "controlnet": bool(self.simple_controlnet_var.get()),
-            "aggro": bool(self.simple_aggro_var.get()),
-            "steps": int(self.simple_steps_var.get()),
+            "controlnet": bool(control_var.get()) if control_var is not None else True,
+            "aggro": bool(aggro_var.get()) if aggro_var is not None else True,
+            "steps": int(steps_var.get()) if steps_var is not None else DEFAULT_STEPS,
         }
         return profile
 
