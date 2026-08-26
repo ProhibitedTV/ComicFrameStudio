@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Stable ComicFrame Studio entrypoint."""
-from comicframe_presence import ComicFrameStudioApp, main
+from comicframe_aggro import ComicFrameStudioApp, main
 
 __all__ = ["ComicFrameStudioApp", "main"]
 
