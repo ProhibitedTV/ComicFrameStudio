@@ -16,8 +16,8 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt pytest
       - name: Compile sealed runtime
-        run: python -m compileall -q app.py comicframe_runtime_v28.py comicframe_runtime_v29.py comicframe_stability.py comicframe_usability.py comicframe_simple.py comicframe_media.py comicframe_manifest_safety.py tests
+        run: python -m compileall -q app.py comicframe_runtime_v28.py comicframe_runtime_v29.py comicframe_stability.py comicframe_usability.py comicframe_simple.py comicframe_interface.py comicframe_media.py comicframe_manifest_safety.py tests
       - name: Import stable entrypoint
-        run: python -c "import app; assert app.ComicFrameStudioApp.__module__ == 'comicframe_simple'"
+        run: python -c "import app; assert app.ComicFrameStudioApp.__module__ == 'comicframe_interface'"
       - name: Run second-audit regression tests
-        run: python -m pytest -q tests/test_audit2.py tests/test_stability.py tests/test_hardening.py tests/test_usability.py tests/test_simple_flow.py
+        run: python -m pytest -q tests/test_audit2.py tests/test_stability.py tests/test_hardening.py tests/test_usability.py tests/test_simple_flow.py tests/test_interface.py
