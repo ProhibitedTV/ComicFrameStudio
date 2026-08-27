@@ -202,10 +202,10 @@ class ComicFrameStudioApp(_BaseComicFrameStudioApp):
             last_error: Exception = exc
 
         recovery_started = time.monotonic()
-        last_status_log = 0.0
+        last_status_log = -300.0
         for delay in recovery_waits():
             elapsed = time.monotonic() - recovery_started
-            if elapsed - last_status_log >= 300.0 or last_status_log == 0.0:
+            if elapsed - last_status_log >= 300.0:
                 self._log(
                     f"Stable Diffusion transport interrupted on frame {frame_number}; completed frames are preserved. "
                     f"Recovery mode active for up to {BACKEND_RECOVERY_MAX_SECONDS / 3600.0:.1f}h."
@@ -219,9 +219,6 @@ class ComicFrameStudioApp(_BaseComicFrameStudioApp):
             if not ready:
                 # Busy is often good news: the request may have disconnected
                 # while Forge kept rendering. Do not submit a competing frame.
-                if "busy" in detail.lower() and time.monotonic() - last_status_log >= 300.0:
-                    self._log(f"Backend is reachable but still {detail}; waiting instead of duplicating the request.")
-                    last_status_log = time.monotonic() - recovery_started
                 continue
 
             try:
