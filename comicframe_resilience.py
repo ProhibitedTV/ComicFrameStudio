@@ -4,12 +4,14 @@
 This module is deliberately thin and loaded by ``app.py`` before the stable
 entrypoint is re-exported. It leaves the existing renderer intact while adding
 long-lived recovery for transient Forge/A1111 failures, a much larger img2img
-read timeout for legitimately slow frames, backend-idle detection, and runtime
-rehydration after a WebUI restart.
+read timeout for legitimately slow frames, backend-idle detection, runtime
+rehydration after a WebUI restart, and resume-safe profile migration across
+operational ComicFrame upgrades.
 
 The policy is intentionally biased toward unattended renders: a transient local
-backend problem should cost time, not a 99-hour job. Completed PNG frames remain
-the durable checkpoint and are never deleted by this layer.
+backend problem or a non-rendering app metadata update should cost time, not a
+99-hour job. Completed PNG frames remain the durable checkpoint and are never
+deleted by this layer.
 """
 from __future__ import annotations
 
@@ -25,7 +27,7 @@ import comicframe_simple as simple
 import comicframe_studio as legacy_transport
 
 
-RESILIENCE_VERSION = "3.6.2"
+RESILIENCE_VERSION = "3.6.3"
 RECOVERY_DELAYS = (5.0, 15.0, 30.0, 60.0)
 RECOVERY_POLL_SECONDS = 60.0
 FRAME_CONNECT_TIMEOUT_SECONDS = 30.0
@@ -112,12 +114,47 @@ def friendly_error_text(exc: Exception | str) -> tuple[str, str]:
     return _base_friendly_error_text(exc)
 
 
+def normalize_resume_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    """Remove metadata that cannot change the pixels of an already-planned frame.
+
+    The lower runtime already strips app-version, workspace and director-only
+    metadata before deciding whether cached styled frames can be reused. The
+    resilience layer introduced another operational profile block, and the v3.6
+    style-library release changed a version marker even when the user's actual
+    public controls were unchanged. Treat those version stamps as metadata, not
+    as checkpoint/sampler/ControlNet changes.
+
+    Real render-affecting values remain in the normalized profile: checkpoint,
+    sampler, scheduler, inference geometry, ControlNet on/off, steps, style
+    policy and all lower-engine settings. Those still invalidate incompatible
+    cached frames exactly as before.
+    """
+    normalized = _BaseComicFrameStudioApp._profile_without_director(profile)
+    normalized.pop("backend_resilience", None)
+
+    controls = normalized.get("creative_controls")
+    if isinstance(controls, dict):
+        controls = dict(controls)
+        controls.pop("version", None)
+        controls.pop("style_library", None)
+        if controls:
+            normalized["creative_controls"] = controls
+        else:
+            normalized.pop("creative_controls", None)
+    return normalized
+
+
 class ComicFrameStudioApp(_BaseComicFrameStudioApp):
     """Keep long renders alive through recoverable local-backend failures."""
 
     def __init__(self):
         super().__init__()
         self.title(f"ComicFrame Studio {RESILIENCE_VERSION}")
+
+    @staticmethod
+    def _profile_without_director(profile: dict[str, Any]) -> dict[str, Any]:
+        """Permit safe resume across operational/version-only product upgrades."""
+        return normalize_resume_profile(profile)
 
     @staticmethod
     def _resilience_is_transient(exc: Exception) -> bool:
@@ -277,5 +314,6 @@ __all__ = [
     "FRAME_CONNECT_TIMEOUT_SECONDS",
     "FRAME_READ_TIMEOUT_SECONDS",
     "recovery_waits",
+    "normalize_resume_profile",
     "friendly_error_text",
 ]
