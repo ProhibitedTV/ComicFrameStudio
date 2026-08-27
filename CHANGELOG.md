@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.6.2 — Long-Render Resilience
+
+### Unattended render survival
+- Raised the img2img client read timeout from the legacy one-hour ceiling to six hours by default so legitimately slow SDXL + ControlNet frames are not killed by ComicFrame itself.
+- Added a 24-hour transient backend recovery window with short backoff followed by once-per-minute polling.
+- Wait for Forge/A1111 to become healthy and idle before resubmitting a frame after a disconnect, preventing duplicate generations from competing for VRAM.
+- Refresh WebUI capabilities, checkpoint state, and the public ControlNet choice after a backend restart before resuming the interrupted frame.
+- Expanded transient transport classification while continuing to fail fast on CUDA OOM and NaN failures.
+- Kept completed PNG frames as durable checkpoints throughout recovery; backend failures now cost time instead of discarding a multi-day render.
+- Added environment overrides for the long frame timeout and backend recovery window.
+- Added regression coverage for entrypoint wiring, multi-hour transport timeouts, recovery scheduling, transport scoping, and transient-error classification.
+
 ## v3.6 — Weighted Prompt Hierarchy
 
 ### Style authority
