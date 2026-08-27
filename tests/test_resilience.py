@@ -78,3 +78,50 @@ def test_transient_classifier_retries_network_failures_but_not_oom():
     assert not resilience.ComicFrameStudioApp._resilience_is_transient(
         RuntimeError("HTTP 500 CUDA out of memory")
     )
+
+
+def _resume_profile(*, controlnet=True, steps=36, style_library="3.5", checkpoint="model-a"):
+    return {
+        "app_version": "3.5",
+        "checkpoint": checkpoint,
+        "sampler": "DPM++ 2M",
+        "scheduler": "Automatic",
+        "inference": "1024 long edge",
+        "creative_controls": {
+            "version": "3.5",
+            "controlnet": controlnet,
+            "steps": steps,
+            "style_policy": "aggressive-by-default",
+            "style_library": style_library,
+        },
+        "backend_resilience": {
+            "version": "3.6.2",
+            "frame_read_timeout_seconds": 21600,
+        },
+    }
+
+
+def test_resume_profile_ignores_version_only_resilience_metadata():
+    old = _resume_profile(style_library="3.5")
+    old.pop("backend_resilience")
+    new = _resume_profile(style_library="3.6")
+    new["app_version"] = "3.6.3"
+    new["creative_controls"]["version"] = "3.6.3"
+    new["backend_resilience"]["version"] = "3.6.3"
+
+    assert resilience.normalize_resume_profile(old) == resilience.normalize_resume_profile(new)
+    assert resilience.ComicFrameStudioApp._profile_without_director(old) == resilience.ComicFrameStudioApp._profile_without_director(new)
+
+
+def test_resume_profile_still_rejects_real_controlnet_or_step_changes():
+    baseline = resilience.normalize_resume_profile(_resume_profile(controlnet=True, steps=36))
+    no_controlnet = resilience.normalize_resume_profile(_resume_profile(controlnet=False, steps=36))
+    fewer_steps = resilience.normalize_resume_profile(_resume_profile(controlnet=True, steps=24))
+    assert baseline != no_controlnet
+    assert baseline != fewer_steps
+
+
+def test_resume_profile_still_rejects_checkpoint_changes():
+    old = resilience.normalize_resume_profile(_resume_profile(checkpoint="model-a"))
+    new = resilience.normalize_resume_profile(_resume_profile(checkpoint="model-b"))
+    assert old != new
