@@ -1,16 +1,24 @@
 # Changelog
 
+## v3.6.3 — Resume Profile Migration
+
+### Long-render resume compatibility
+- Fixed a regression where the v3.6.2 resilience metadata itself was treated as a render-setting change, preventing an existing project from resuming after upgrading.
+- Treat backend-resilience version/configuration metadata as operational state rather than pixel-affecting render state.
+- Treat product/style-library version stamps as migration metadata while continuing to compare the actual public render controls.
+- Checkpoint, sampler, scheduler, inference geometry, ControlNet on/off, steps, style policy, and lower-engine settings still invalidate incompatible caches normally.
+- Added regression coverage proving a v3.5 project can resume under v3.6.3 when only version metadata changed, while real ControlNet, steps, or checkpoint changes are still rejected.
+
 ## v3.6.2 — Long-Render Resilience
 
-### Unattended render survival
-- Raised the img2img client read timeout from the legacy one-hour ceiling to six hours by default so legitimately slow SDXL + ControlNet frames are not killed by ComicFrame itself.
-- Added a 24-hour transient backend recovery window with short backoff followed by once-per-minute polling.
-- Wait for Forge/A1111 to become healthy and idle before resubmitting a frame after a disconnect, preventing duplicate generations from competing for VRAM.
-- Refresh WebUI capabilities, checkpoint state, and the public ControlNet choice after a backend restart before resuming the interrupted frame.
-- Expanded transient transport classification while continuing to fail fast on CUDA OOM and NaN failures.
-- Kept completed PNG frames as durable checkpoints throughout recovery; backend failures now cost time instead of discarding a multi-day render.
-- Added environment overrides for the long frame timeout and backend recovery window.
-- Added regression coverage for entrypoint wiring, multi-hour transport timeouts, recovery scheduling, transport scoping, and transient-error classification.
+### Backend survival
+- Extended the legacy img2img HTTP read timeout from one hour to six hours by default so legitimately slow SDXL + ControlNet frames are not killed by the client.
+- Added a 24-hour default recovery window for transient Forge/A1111 disconnects and restarts.
+- Recovery uses bounded backoff followed by once-per-minute health polling.
+- Waits for the backend to be healthy and idle before retrying an interrupted frame to avoid duplicate generations competing for VRAM.
+- Refreshes WebUI capabilities and restores checkpoint/ControlNet state after a backend restart.
+- Preserves completed frame checkpoints throughout recovery and keeps OOM/NaN errors distinct from recoverable transport failures.
+- Added environment overrides for per-frame read timeout and backend recovery-window duration.
 
 ## v3.6 — Weighted Prompt Hierarchy
 
