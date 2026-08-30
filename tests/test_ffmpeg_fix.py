@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import comicframe_ffmpeg_fix as fix
 
@@ -48,6 +49,23 @@ def test_audio_mux_retries_preserve_video_and_add_guards():
     assert repaired[repaired.index("-c:a") + 1] == "aac"
     assert repaired[repaired.index("-af") + 1] == "aresample=async=1:first_pts=0"
     assert "-shortest" in repaired
+
+
+def test_detached_audio_recovery_normalizes_audio_before_remux(tmp_path: Path):
+    audio_temp = tmp_path / "normalized.m4a"
+    commands = dict(fix.build_detached_audio_commands(MUX_COMMAND, audio_temp))
+
+    extract = commands["detached source-audio normalization"]
+    assert extract[extract.index("-map") + 1] == "0:a:0"
+    assert extract[extract.index("-c:a") + 1] == "aac"
+    assert extract[extract.index("-af") + 1] == "aresample=async=1:first_pts=0"
+    assert extract[-1] == str(audio_temp)
+
+    remux = commands["detached-audio remux"]
+    assert remux[remux.index("-c:v") + 1] == "copy"
+    assert remux[remux.index("-c:a") + 1] == "copy"
+    assert remux[remux.index("-max_muxing_queue_size") + 1] == "8192"
+    assert remux[remux.index("-t") + 1] == "21.557778000"
 
 
 def test_mux_runner_retries_and_recovers_without_rerender(monkeypatch):
