@@ -308,7 +308,7 @@ def _run_with_mux_recovery(self, args, capture=False):
     log_note = f" Full diagnostics: {diagnostic}" if diagnostic is not None else ""
     raise RuntimeError(
         "ffmpeg still could not build the final MP4 after all automatic recovery paths. "
-        "The completed styled frames are preserved; do not rerender them. "
+        "The completed styled frames are preserved, so the render does not need to be repeated. "
         f"Last failure: {final_label} (exit {final_code}).{log_note}\n\n{final_detail}"
     )
 
