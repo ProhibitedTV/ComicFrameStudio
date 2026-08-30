@@ -109,7 +109,7 @@ def friendly_error_text(exc: Exception | str) -> tuple[str, str]:
             "Stable Diffusion connection was interrupted",
             "Forge/A1111 stopped responding during the render. ComicFrame preserved completed frames. "
             "Restart or reconnect the WebUI, then process the same video with the same look again; "
-            "ComicFrame will resume from the cached frames instead of starting over.",
+            "ComicFrame will resume from the cached frames so you do not have to start over.",
         )
     return _base_friendly_error_text(exc)
 
@@ -215,8 +215,6 @@ class ComicFrameStudioApp(_BaseComicFrameStudioApp):
                 if progress > 0.001 or job_count > 0 or sampling_step > 0:
                     return False, f"backend busy · progress={progress:.1%} jobs={job_count}"
         except Exception:
-            # /progress is advisory. Older/variant WebUIs may not expose it; the
-            # successful /options request is still enough to establish health.
             pass
         return True, f"HTTP {response.status_code} · idle"
 
@@ -254,8 +252,6 @@ class ComicFrameStudioApp(_BaseComicFrameStudioApp):
 
             ready, detail = self._resilience_backend_ready(settings.api_url)
             if not ready:
-                # Busy is often good news: the request may have disconnected
-                # while Forge kept rendering. Do not submit a competing frame.
                 continue
 
             try:
@@ -297,10 +293,6 @@ class ComicFrameStudioApp(_BaseComicFrameStudioApp):
         return profile
 
 
-# ``comicframe_simple`` imported friendly_error_text by name, so replace that
-# module-level alias. Also replace the product class global: product.main()
-# resolves ComicFrameStudioApp at call time, preserving the established public
-# entrypoint and existing interface-contract tests.
 simple.friendly_error_text = friendly_error_text
 product.ComicFrameStudioApp = ComicFrameStudioApp
 
