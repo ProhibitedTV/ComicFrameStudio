@@ -419,6 +419,7 @@ class RenderIntelligenceMixin:
     @staticmethod
     def _transport_key(prev_gray, cur_gray, quality: bool) -> str:
         digest = hashlib.sha256()
+        digest.update(flow.TRANSPORT_VERSION.encode("ascii"))
         digest.update(b"quality" if quality else b"fast")
         digest.update(str(prev_gray.shape).encode("ascii"))
         digest.update(str(cur_gray.shape).encode("ascii"))
@@ -444,7 +445,7 @@ class RenderIntelligenceMixin:
             self._transport_cache_mem.pop(stale, None)
 
     def _raw_transport(self, prev_gray, cur_gray, quality: bool):
-        cv2, np = flow.cv2, flow.np
+        np = flow.np
         key = self._transport_key(prev_gray, cur_gray, quality)
         cached = self._transport_cache_mem.get(key)
         if cached is not None:
@@ -457,6 +458,14 @@ class RenderIntelligenceMixin:
                 with np.load(cache_path, allow_pickle=False) as data:
                     flow_backward = data["flow"].astype(np.float32)
                     confidence_raw = data["confidence"].astype(np.float32)
+                if (
+                    flow_backward.shape != (*cur_gray.shape, 2)
+                    or confidence_raw.shape != cur_gray.shape
+                    or not np.isfinite(flow_backward).all()
+                    or not np.isfinite(confidence_raw).all()
+                    or np.any((confidence_raw < 0) | (confidence_raw > 1))
+                ):
+                    raise ValueError("Invalid cached transport arrays")
                 self._remember_transport(key, flow_backward, confidence_raw)
                 self._flow_cache_hits += 1
                 return flow_backward, confidence_raw
@@ -469,42 +478,9 @@ class RenderIntelligenceMixin:
         self._flow_cache_misses += 1
         flow_forward = flow.OpticalFlowTemporalMixin._farneback(prev_gray, cur_gray, quality)
         flow_backward = flow.OpticalFlowTemporalMixin._farneback(cur_gray, prev_gray, quality)
-        h, w = cur_gray.shape[:2]
-        gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
-        map_x = gx + flow_backward[..., 0]
-        map_y = gy + flow_backward[..., 1]
-        valid = (
-            (map_x >= 0.0)
-            & (map_x <= float(w - 1))
-            & (map_y >= 0.0)
-            & (map_y <= float(h - 1))
-        ).astype(np.float32)
-        sampled_fx = cv2.remap(
-            flow_forward[..., 0], map_x, map_y, cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT, borderValue=0,
+        confidence_raw = flow.OpticalFlowTemporalMixin._transport_confidence(
+            prev_gray, cur_gray, flow_forward, flow_backward, quality
         )
-        sampled_fy = cv2.remap(
-            flow_forward[..., 1], map_x, map_y, cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT, borderValue=0,
-        )
-        fb_error = np.sqrt(
-            (flow_backward[..., 0] + sampled_fx) ** 2
-            + (flow_backward[..., 1] + sampled_fy) ** 2
-        )
-        motion = np.sqrt(flow_backward[..., 0] ** 2 + flow_backward[..., 1] ** 2)
-        tolerance = (1.0 if quality else 1.5) + 0.06 * motion
-        confidence_fb = np.exp(-((fb_error / np.maximum(tolerance, 1e-3)) ** 2))
-        warped_prev_gray = cv2.remap(
-            prev_gray, map_x, map_y, cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REFLECT101,
-        )
-        photo_error = cv2.absdiff(cur_gray, warped_prev_gray).astype(np.float32)
-        photo_sigma = 24.0 if quality else 30.0
-        confidence_photo = np.exp(-((photo_error / photo_sigma) ** 2))
-        confidence_raw = np.sqrt(np.clip(confidence_fb * confidence_photo, 0.0, 1.0)) * valid
-        confidence_raw = cv2.GaussianBlur(
-            confidence_raw, (0, 0), sigmaX=1.1 if quality else 1.4
-        ).astype(np.float32)
         flow_backward = flow_backward.astype(np.float32)
         self._remember_transport(key, flow_backward, confidence_raw)
 

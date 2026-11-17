@@ -1,5 +1,17 @@
 # Changelog
 
+## Product 3.6 / Style Library 3.7 — Dream Rotoscope and frame preview
+
+- Added Dream Rotoscope through the existing registry, with selective ink, edge-aware matte paint abstraction, soft fixed tonal bands and deterministic form-following pigment shading.
+- Added an actual first-frame diffusion preview and original/stylized comparison using an isolated owned subproject and the canonical serial rendering engine.
+- Captured public render choices before starting workers; moved hidden defaults to the main thread, preserved cancellation without publishing stale final media, and fixed completion-label ordering.
+- Corrected occlusion-confidence leakage, adaptive-resolution remapping and temporal history at explicit shot boundaries. Versioned transport caches/profiles; old project files remain intact.
+- Made the simple shell compact and scrollable so actions remain reachable at smaller window sizes.
+- Extended the existing FFmpeg compatibility boundary to retry removed `-vsync` modes with equivalent `-fps_mode` settings on modern builds, retaining legacy commands first.
+- Added synthetic temporal evaluation, generated CFR/VFR/audio checks, and optional native preview/full-render smoke with mocked WebUI responses. No real diffusion artistic acceptance or consumer-GPU throughput claim.
+
+Backend resilience remains v3.6.3. See [validation and limitations](docs/DREAM_ROTOSCOPE.md).
+
 ## v3.6.3 — Resume Profile Migration
 
 ### Long-render resume compatibility

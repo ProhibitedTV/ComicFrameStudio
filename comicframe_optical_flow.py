@@ -28,6 +28,7 @@ FLOW_BASIC = "Basic"
 FLOW_FAST = "Optical Flow · Fast"
 FLOW_QUALITY = "Optical Flow · Quality"
 FLOW_ENGINES = [FLOW_OFF, FLOW_BASIC, FLOW_FAST, FLOW_QUALITY]
+TRANSPORT_VERSION = "2-occlusion-safe"
 
 
 class OpticalFlowTemporalMixin:
@@ -149,6 +150,19 @@ class OpticalFlowTemporalMixin:
         """Return backward flow (current->previous) and confidence in current coordinates."""
         flow_forward = cls._farneback(prev_gray, cur_gray, quality)
         flow_backward = cls._farneback(cur_gray, prev_gray, quality)
+        confidence = cls._transport_confidence(prev_gray, cur_gray, flow_forward, flow_backward, quality)
+        floor = max(0.0, min(0.9, float(confidence_floor)))
+        confidence = np.clip((confidence - floor) / max(1e-6, 1.0 - floor), 0.0, 1.0)
+        return flow_backward.astype(np.float32), confidence.astype(np.float32)
+
+    @staticmethod
+    def _transport_confidence(prev_gray, cur_gray, flow_forward, flow_backward, quality: bool):
+        """Confidence shared by cached and uncached transport, before user floors.
+
+        Feathering may reduce trust, but must never restore rejected pixels at
+        disocclusions or outside the source. Otherwise reflected border pixels
+        and old silhouettes leak into both img2img conditioning and final frames.
+        """
 
         h, w = cur_gray.shape[:2]
         gx, gy = np.meshgrid(np.arange(w, dtype=np.float32), np.arange(h, dtype=np.float32))
@@ -183,15 +197,16 @@ class OpticalFlowTemporalMixin:
         confidence_photo = np.exp(-((photo_error / photo_sigma) ** 2))
 
         confidence = np.sqrt(np.clip(confidence_fb * confidence_photo, 0.0, 1.0)) * valid
-        confidence = cv2.GaussianBlur(confidence, (0, 0), sigmaX=1.1 if quality else 1.4)
-
-        floor = max(0.0, min(0.9, float(confidence_floor)))
-        confidence = np.clip((confidence - floor) / max(1e-6, 1.0 - floor), 0.0, 1.0)
-        return flow_backward.astype(np.float32), confidence.astype(np.float32)
+        feathered = cv2.GaussianBlur(confidence, (0, 0), sigmaX=1.1 if quality else 1.4)
+        return np.minimum(confidence, feathered).astype(np.float32)
 
     @staticmethod
     def _warp_previous(previous_rgb, flow_backward, confidence, out_size: tuple[int, int]):
         out_w, out_h = out_size
+        # Adaptive inference can change dimensions between adjacent frames.
+        # Remap coordinates must refer to a previous image of the target size.
+        if previous_rgb.shape[:2] != (out_h, out_w):
+            previous_rgb = cv2.resize(previous_rgb, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
         flow_h, flow_w = flow_backward.shape[:2]
         sx = out_w / float(flow_w)
         sy = out_h / float(flow_h)
@@ -210,10 +225,23 @@ class OpticalFlowTemporalMixin:
             borderMode=cv2.BORDER_REFLECT101,
         )
         confidence_full = cv2.resize(confidence, (out_w, out_h), interpolation=cv2.INTER_LINEAR)
+        support = cv2.resize(confidence, (out_w, out_h), interpolation=cv2.INTER_NEAREST)
+        valid = (map_x >= 0) & (map_x <= out_w - 1) & (map_y >= 0) & (map_y <= out_h - 1)
+        confidence_full = np.minimum(confidence_full, support) * valid
         return warped, np.clip(confidence_full, 0.0, 1.0)
+
+    def _temporal_shot_boundary(self, frame_number: int) -> bool:
+        """Honor authored/detected cuts even when their histograms are similar."""
+        timeline = getattr(self, "_director_timeline", {}) or {}
+        return any(
+            int(shot.get("start", 0)) == int(frame_number)
+            for shot in timeline.get("shots", []) if isinstance(shot, dict)
+        )
 
     def _optical_flow_lock(self, frame_path: Path, out_path: Path, frame_number: int, quality: bool):
         if not self.temporal_enabled_var.get() or frame_number <= 1:
+            return
+        if self._temporal_shot_boundary(frame_number):
             return
 
         previous_out = out_path.parent / f"frame_{frame_number - 1:06d}.png"
@@ -274,6 +302,8 @@ class OpticalFlowTemporalMixin:
         Image.fromarray(stabilized, mode="RGB").save(out_path, format="PNG", optimize=False)
 
     def _temporal_lock(self, frame_path: Path, out_path: Path, frame_number: int):
+        if self._temporal_shot_boundary(frame_number):
+            return
         engine = self.temporal_engine_var.get() if hasattr(self, "temporal_engine_var") else FLOW_BASIC
         if engine == FLOW_OFF:
             return
@@ -300,6 +330,7 @@ class OpticalFlowTemporalMixin:
         profile = super()._render_profile()
         profile["app_version"] = "1.9"
         profile["optical_flow"] = {
+            "transport_version": TRANSPORT_VERSION,
             "engine": self.temporal_engine_var.get(),
             "confidence_floor": float(self.flow_confidence_var.get()),
             "fast_flow_long_edge": 512,

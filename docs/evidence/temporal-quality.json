@@ -1,0 +1,88 @@
+{
+  "baseline_commit": "5341245",
+  "transport_version": "2-occlusion-safe",
+  "fixture_seed": 734,
+  "quality": true,
+  "confidence_floor": 0.35,
+  "numpy": "2.3.5",
+  "opencv": "4.14.0",
+  "units": "differences: 0-255; detail_retention: gradient ratio; timing: CPU only",
+  "limitation": "Generated source and synthetic stylization; no diffusion/artistic acceptance claim.",
+  "cases": {
+    "static": {
+      "baseline": {
+        "mc_difference": 3.726988,
+        "edge_difference": 0.842233,
+        "ghosting_error": null,
+        "detail_retention": 0.999928
+      },
+      "patched": {
+        "mc_difference": 3.741804,
+        "edge_difference": 0.843102,
+        "ghosting_error": null,
+        "detail_retention": 0.999961
+      },
+      "flow_pair_ms": 30.169
+    },
+    "pan": {
+      "baseline": {
+        "mc_difference": 3.757886,
+        "edge_difference": 0.999798,
+        "ghosting_error": 0.047348,
+        "detail_retention": 1.000151
+      },
+      "patched": {
+        "mc_difference": 3.772721,
+        "edge_difference": 1.003699,
+        "ghosting_error": 0.025852,
+        "detail_retention": 1.000542
+      },
+      "flow_pair_ms": 29.159
+    },
+    "occlusion": {
+      "baseline": {
+        "mc_difference": 4.193663,
+        "edge_difference": 1.499309,
+        "ghosting_error": 1.999463,
+        "detail_retention": 0.993678
+      },
+      "patched": {
+        "mc_difference": 4.215836,
+        "edge_difference": 1.446371,
+        "ghosting_error": 1.862375,
+        "detail_retention": 0.996605
+      },
+      "flow_pair_ms": 28.07
+    },
+    "lighting": {
+      "baseline": {
+        "mc_difference": 8.12286,
+        "edge_difference": 2.314049,
+        "ghosting_error": null,
+        "detail_retention": 0.99912
+      },
+      "patched": {
+        "mc_difference": 8.134294,
+        "edge_difference": 2.314887,
+        "ghosting_error": null,
+        "detail_retention": 0.999235
+      },
+      "flow_pair_ms": 29.036
+    },
+    "cut": {
+      "baseline": {
+        "mc_difference": 3.827789,
+        "edge_difference": 0.783396,
+        "ghosting_error": null,
+        "detail_retention": 0.999687
+      },
+      "patched": {
+        "mc_difference": 3.839816,
+        "edge_difference": 0.784491,
+        "ghosting_error": null,
+        "detail_retention": 0.999712
+      },
+      "flow_pair_ms": 27.585
+    }
+  }
+}

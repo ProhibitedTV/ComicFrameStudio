@@ -457,6 +457,35 @@ def _rgb_split(image: Image.Image, shift: int) -> Image.Image:
     return Image.merge("RGB", (r, g, b))
 
 
+def dream_rotoscope_finish(image: Image.Image) -> Image.Image:
+    """Edge-aware paint abstraction of a diffusion render, with no frame RNG.
+
+    Soft, fixed tonal bands avoid per-frame palette fitting and hard quantizer
+    jumps. Pigment relief comes from the image itself, so it follows painted
+    forms instead of crawling across them as a screen-space noise overlay.
+    """
+    import cv2
+    import numpy as np
+
+    rgb = np.asarray(image.convert("RGB"))
+    paint = cv2.bilateralFilter(rgb, 7, 38, 5)
+    lab = cv2.cvtColor(paint, cv2.COLOR_RGB2LAB).astype(np.float32)
+    # Continuous compression toward stable color regions, retaining gradients
+    # around eyes, mouths and hands rather than rounding entire regions flat.
+    lab[..., 0] -= 4.0 * np.sin(lab[..., 0] * (2.0 * np.pi / 32.0))
+    lab[..., 1:] -= 2.0 * np.sin((lab[..., 1:] - 128.0) * (2.0 * np.pi / 24.0))
+    body = cv2.cvtColor(np.clip(lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2RGB).astype(np.float32)
+    gray = cv2.cvtColor(paint, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    broad = cv2.GaussianBlur(gray, (0, 0), 1.1)
+    dx = cv2.Sobel(broad, cv2.CV_32F, 1, 0, ksize=3)
+    dy = cv2.Sobel(broad, cv2.CV_32F, 0, 1, ksize=3)
+    # Broad structural boundaries get ink; small photographic texture stays soft.
+    ink = np.clip((cv2.magnitude(dx, dy) - 22.0) / 100.0, 0.0, 1.0)[..., None] * 0.30
+    pigment = np.tanh((broad - cv2.GaussianBlur(gray, (0, 0), 3.5)) / 12.0)[..., None] * 1.8
+    painted = body * (1.0 - ink) + np.array([30, 25, 38], dtype=np.float32) * ink + pigment
+    return Image.fromarray(np.clip(painted, 0, 255).astype(np.uint8))
+
+
 def _apply_artistic_finish(path: Path, style_name: str, frame_number: int) -> None:
     pack = ARTISTIC_STYLE_PACKS.get(style_name)
     if not pack:
@@ -467,7 +496,9 @@ def _apply_artistic_finish(path: Path, style_name: str, frame_number: int) -> No
         image = src.convert("RGB")
 
     finish = pack.finish
-    if finish == "watercolor":
+    if finish == "dream_rotoscope":
+        image = dream_rotoscope_finish(image)
+    elif finish == "watercolor":
         softened = image.filter(ImageFilter.SMOOTH_MORE).filter(ImageFilter.GaussianBlur(0.65))
         paper = Image.new("RGB", image.size, (246, 242, 230))
         image = Image.blend(softened, paper, 0.06)

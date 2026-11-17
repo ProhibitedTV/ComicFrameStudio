@@ -14,7 +14,7 @@ import comicframe_simple as simple
 import comicframe_styles as styles
 from comicframe_styles import StylePack
 
-STYLE_LIBRARY_VERSION = "3.6"
+STYLE_LIBRARY_VERSION = "3.7"
 PROMPT_WEIGHT_POLICY_VERSION = "1"
 WEIGHTED_PROMPT_MARKER = "radical visual reinterpretation through the selected medium"
 
@@ -70,11 +70,11 @@ def _pack(spec: StyleSpec) -> StylePack:
         temporal_strength=spec.temporal_strength,
         temporal_motion=0.055,
         temporal_cut=0.22,
-        fx_ink=True,
-        fx_posterize=True,
-        fx_halftone=True,
-        fx_misregister=True,
-        fx_grain=True,
+        fx_ink=spec.finish != "dream_rotoscope",
+        fx_posterize=spec.finish != "dream_rotoscope",
+        fx_halftone=spec.finish != "dream_rotoscope",
+        fx_misregister=spec.finish != "dream_rotoscope",
+        fx_grain=spec.finish != "dream_rotoscope",
         finish=spec.finish,
         description=spec.description,
     )
@@ -145,6 +145,17 @@ def weighted_prompt_policy(prompt: str, negative: str, stability: str) -> tuple[
 
 
 NEW_STYLE_SPECS: dict[str, StyleSpec] = {
+    "Dream Rotoscope": StyleSpec(
+        "expressive hand-painted rotoscope animation, flowing selective ink contours, opaque gouache color regions, "
+        "warm ochre and muted teal pigment harmony, sculpted painterly shadow shapes, restrained dry-brush shading, "
+        "simplify photographic microdetail into authored paint, stable expressive faces and natural hands, "
+        "preserve subject identity, silhouette, pose, complete composition and source camera motion",
+        "photographic skin pores, cartoon photo filter, muddy paint, doubled outlines, crawling grain, "
+        "oversharpening, halftone dots, chromatic misregistration, plastic skin, melted facial features",
+        "dream_rotoscope", "Expressive ink, matte painted regions and restrained form-following pigment shading.",
+        "Fine Art", "High", denoise=.58, cfg=5.5, fx=.62, control_weight=.80,
+        guidance_end=.82, temporal_strength=.26,
+    ),
     "Toxic Xerox": StyleSpec(
         "toxic photocopied punk frame, blown-out toner blacks, acid contamination, ripped paper edges, smeared duplicated contours, hostile DIY print artifact",
         "clean gradients, polite commercial layout, soft photographic realism",
@@ -281,6 +292,7 @@ NEW_STYLE_SPECS: dict[str, StyleSpec] = {
 
 
 CURATED_STYLE_ORDER = (
+    "Dream Rotoscope",
     "Graphic Shock · maximum print", "Cyberpunk Print",
     "Toxic Xerox", "Punk Flyer", "Photocopier Riot", "Newsprint Panic", "Bootleg Anime Print",
     "Street Poster Melt", "Stencil Riot", "Dream Collapse", "Signal Rupture", "Glitch Collapse",

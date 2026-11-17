@@ -112,6 +112,8 @@ def _print_grain(image: Image.Image, intensity: float) -> Image.Image:
 
 
 def apply_graphic_fx(path: Path, settings: GraphicFXSettings, frame_number: int) -> None:
+    if not any((settings.ink, settings.posterize, settings.halftone, settings.misregistration, settings.grain)):
+        return
     """Apply the configured deterministic finishing stack in place."""
     if not settings.enabled:
         return

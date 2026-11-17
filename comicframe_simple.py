@@ -26,6 +26,8 @@ from PIL import Image, ImageOps, ImageTk
 import comicframe_styles as styles
 from comicframe_artistic import STYLE_CATEGORIES, STYLE_STABILITY, register_artistic_expansion
 from comicframe_director import _set_shot, apply_treatment
+from comicframe_media import validate_png
+from comicframe_preview import RenderRequest, extract_preview_frame, make_preview_comparison
 from comicframe_usability import (
     ComicFrameStudioApp as UsabilityComicFrameStudioApp,
     default_project_path_for_video,
@@ -159,12 +161,15 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
     def __init__(self):
         super().__init__()
         self.title("ComicFrame Studio 3.0 · Video In / Video Out")
-        self.geometry("940x820")
+        self.geometry("940x900")
         self.minsize(780, 680)
 
         self._simple_output_path: Path | None = None
         self._simple_preview_ref = None
+        self._simple_preview_path: Path | None = None
         self._simple_busy = False
+        self._simple_render_request: RenderRequest | None = None
+        self._simple_preview_source_info = None
         self._install_simple_shell()
 
     # ---------- Product shell ----------
@@ -193,12 +198,22 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
         self.simple_process_info_var = tk.StringVar(value=process_description(self.simple_process_var.get()))
         self.simple_result_var = tk.StringVar(value="")
 
-        shell = ttk.Frame(self, padding=26)
-        shell.pack(fill="both", expand=True)
+        viewport = ttk.Frame(self)
+        viewport.pack(fill="both", expand=True)
+        canvas = tk.Canvas(viewport, highlightthickness=0, bg="#121318")
+        scrollbar = ttk.Scrollbar(viewport, orient="vertical", command=canvas.yview)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        shell = ttk.Frame(canvas, padding=18)
+        window = canvas.create_window((0, 0), window=shell, anchor="nw")
+        shell.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window, width=event.width))
+        self.bind("<MouseWheel>", lambda event: canvas.yview_scroll(-int(event.delta / 120), "units"), add="+")
         self.simple_shell = shell
 
         header = ttk.Frame(shell)
-        header.pack(fill="x", pady=(0, 18))
+        header.pack(fill="x", pady=(0, 12))
         ttk.Label(header, text="ComicFrame", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             header,
@@ -207,7 +222,7 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
             font=("Segoe UI", 11),
         ).pack(anchor="w", pady=(3, 0))
 
-        source = ttk.LabelFrame(shell, text="VIDEO", padding=14)
+        source = ttk.LabelFrame(shell, text="VIDEO · double-click preview to open full size", padding=14)
         source.pack(fill="x")
         source_row = ttk.Frame(source, style="Panel.TFrame")
         source_row.pack(fill="x")
@@ -223,21 +238,22 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
             style="Panel.TLabel",
         ).pack(side="left", fill="x", expand=True, padx=(12, 0))
 
-        preview_wrap = ttk.Frame(source, style="Panel.TFrame")
+        preview_wrap = ttk.Frame(source, style="Panel.TFrame", height=180)
         preview_wrap.pack(fill="both", expand=True, pady=(12, 0))
+        preview_wrap.pack_propagate(False)
         self.simple_preview = tk.Label(
             preview_wrap,
             text="Choose a video",
             bg="#101116",
             fg="#9da5b4",
             font=("Segoe UI", 12),
-            height=19,
             anchor="center",
         )
         self.simple_preview.pack(fill="both", expand=True)
+        self.simple_preview.bind("<Double-Button-1>", self._simple_open_preview)
 
         process = ttk.LabelFrame(shell, text="PROCESS", padding=14)
-        process.pack(fill="x", pady=(14, 0))
+        process.pack(fill="x", pady=(10, 0))
         process_row = ttk.Frame(process, style="Panel.TFrame")
         process_row.pack(fill="x")
         self.simple_process_combo = ttk.Combobox(
@@ -258,7 +274,7 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
         ).pack(anchor="w", pady=(8, 0))
 
         action = ttk.Frame(shell)
-        action.pack(fill="x", pady=(18, 0))
+        action.pack(fill="x", pady=(12, 0))
         self.simple_process_button = ttk.Button(
             action,
             text="PROCESS VIDEO",
@@ -279,7 +295,7 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
         ttk.Label(shell, textvariable=self.progress_label_var, style="Subtitle.TLabel").pack(anchor="w")
 
         self.simple_result = ttk.LabelFrame(shell, text="RESULT", padding=14)
-        self.simple_result.pack(fill="x", pady=(16, 0))
+        self.simple_result.pack(fill="x", pady=(12, 0))
         ttk.Label(
             self.simple_result,
             textvariable=self.simple_result_var,
@@ -359,14 +375,21 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
     def _simple_show_image(self, path: Path) -> None:
         try:
             with Image.open(path) as source:
-                image = ImageOps.contain(source.convert("RGB"), (820, 390), Image.Resampling.LANCZOS)
-            canvas = Image.new("RGB", (820, 390), (16, 17, 22))
-            canvas.paste(image, ((820 - image.width) // 2, (390 - image.height) // 2))
+                size = (max(1, min(820, self.simple_preview.winfo_width())), 180)
+                image = ImageOps.contain(source.convert("RGB"), size, Image.Resampling.LANCZOS)
+            canvas = Image.new("RGB", size, (16, 17, 22))
+            canvas.paste(image, ((size[0] - image.width) // 2, (size[1] - image.height) // 2))
             photo = ImageTk.PhotoImage(canvas)
             self.simple_preview.configure(image=photo, text="")
             self._simple_preview_ref = photo
+            self._simple_preview_path = Path(path)
         except Exception:
             pass
+
+    def _simple_open_preview(self, _event=None) -> None:
+        path = self._simple_preview_path
+        if path is not None and path.is_file():
+            self._open_path(path)
 
     # ---------- One-button processing ----------
 
@@ -390,6 +413,22 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
                 pass
 
     def _simple_process_clicked(self) -> None:
+        self._simple_start_render(preview=False)
+
+    def _simple_preview_clicked(self) -> None:
+        self._simple_start_render(preview=True)
+
+    def _extract_frames(self):
+        request = getattr(self, "_simple_render_request", None)
+        if request is None or not request.preview:
+            return super()._extract_frames()
+        if self._simple_preview_source_info is None:
+            self._simple_preview_source_info = extract_preview_frame(
+                request, self.project_paths(), self._run, self._probe_video, self.stop_event,
+            )
+        return dict(self._simple_preview_source_info)
+
+    def _simple_start_render(self, preview: bool) -> None:
         if self._simple_busy:
             return
         if self.worker and self.worker.is_alive():
@@ -400,7 +439,7 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
             messagebox.showwarning("ComicFrame", "Choose a video first.")
             return
         video = Path(video_text).expanduser().resolve()
-        if not video.exists():
+        if not video.is_file():
             messagebox.showerror("ComicFrame", "The selected video no longer exists.")
             return
         process_name = self.simple_process_var.get()
@@ -408,16 +447,27 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
             messagebox.showerror("ComicFrame", "Choose a valid process.")
             return
 
+        # Capture public choices and apply defaults on the Tk main thread. The
+        # legacy engine still owns internal Tk state; public decisions cannot
+        # drift or be reread from widgets during this worker job.
+        original_work = str(self.work_var.get() or "").strip()
+        project = Path(original_work).expanduser().resolve() if original_work else default_project_path_for_video(video)
+        control_var = getattr(self, "simple_controlnet_var", self.control_enabled_var)
+        steps_var = getattr(self, "simple_steps_var", self.steps_var)
+        request = RenderRequest(video, project, process_name, bool(control_var.get()), int(steps_var.get()), preview)
+        self._simple_render_request = request
+        self._simple_preview_source_info = None
+        self._simple_apply_hidden_defaults()
+        self.work_var.set(str(request.engine_project))
         self._simple_set_busy(True)
         self.simple_result_var.set("")
         self._simple_output_path = None
         self._simple_set_result_buttons(False)
         self.progress.set(0)
-        self.progress_label_var.set("Preparing video…")
+        self.progress_label_var.set("Preparing first-frame diffusion preview…" if preview else "Preparing video…")
 
         def job() -> None:
             try:
-                self._simple_apply_hidden_defaults()
                 # Refresh the backend at job time. Startup discovery may have run
                 # before Forge/A1111 was fully ready.
                 try:
@@ -431,7 +481,32 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
                 self._director_timeline = timeline
                 self._save_director_timeline()
                 self._log(f"Simple Flow: {process_name}")
-                self._render_range(1, None, False)
+                self._render_range(1, 1 if preview else None, preview)
+                if self.stop_event.is_set():
+                    raise InterruptedError("Render cancelled; completed frames are preserved.")
+
+                if preview:
+                    if not self._stability_source_matches_metadata(video, self._simple_preview_source_info or {}):
+                        raise RuntimeError("Source video changed during preview rendering; retry with a stable source.")
+                    paths = self.project_paths()
+                    rendered = Path(paths["test"]) / "frame_000001.png"
+                    valid, reason = validate_png(rendered)
+                    if not valid:
+                        raise RuntimeError(f"Preview did not produce a valid diffusion frame: {reason}")
+                    comparison = make_preview_comparison(
+                        Path(paths["frames"]) / "frame_000001.png", rendered,
+                        Path(paths["root"]) / "previews" / "ORIGINAL_VS_STYLIZED.png",
+                    )
+
+                    def preview_success(result_path=comparison) -> None:
+                        self._simple_show_image(result_path)
+                        self.progress.set(100)
+                        self.progress_label_var.set("Preview ready · first frame · actual diffusion · motion not evaluated")
+                        self._set_progress(100, "Preview ready · first frame · actual diffusion · motion not evaluated")
+                        self.simple_result_var.set(f"First-frame comparison: {result_path}")
+
+                    self.after(0, preview_success)
+                    return
 
                 final = Path(self.project_paths()["final"])
                 if not final.exists() or final.stat().st_size <= 0:
@@ -448,11 +523,16 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
                 def success(result_path=output) -> None:
                     self.progress.set(100)
                     self.progress_label_var.set("Video ready")
+                    self._set_progress(100, "Video ready")
                     self.simple_result_var.set(str(result_path))
                     self._simple_set_result_buttons(True)
 
                 self.after(0, success)
             except Exception as exc:
+                if self.stop_event.is_set() or isinstance(exc, InterruptedError):
+                    self._set_progress(0, "Stopped · completed frames preserved")
+                    self.after(0, lambda: self.progress_label_var.set("Stopped · completed frames preserved"))
+                    return
                 error_text = str(exc)
                 self._log(f"ERROR: {error_text}")
                 try:
@@ -462,12 +542,20 @@ class ComicFrameStudioApp(UsabilityComicFrameStudioApp):
 
                 def failure(error_title=title, error_detail=detail) -> None:
                     self.progress_label_var.set("Processing failed")
+                    self._set_progress(0, "Processing failed")
                     messagebox.showerror(error_title or "Processing failed", error_detail or error_text)
 
                 self.after(0, failure)
             finally:
+                def finish() -> None:
+                    self._simple_render_request = None
+                    self._simple_preview_source_info = None
+                    if preview:
+                        self.work_var.set(original_work)
+                    self._simple_set_busy(False)
+
                 try:
-                    self.after(0, lambda: self._simple_set_busy(False))
+                    self.after(0, finish)
                 except Exception:
                     pass
 

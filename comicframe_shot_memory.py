@@ -225,6 +225,9 @@ class ShotMemoryMixin:
             return payload
         if frame_number <= max(1, int(self._shot_memory_start_frame)):
             return payload
+        if self._temporal_shot_boundary(frame_number):
+            self._shot_memory_cut_frames.add(int(frame_number))
+            return payload
 
         previous_out = self._shot_memory_outdir / f"frame_{frame_number - 1:06d}.png"
         previous_source = Path(frame_path).parent / f"frame_{frame_number - 1:06d}.png"

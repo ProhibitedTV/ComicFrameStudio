@@ -2,7 +2,9 @@
 
 ComicFrame Studio is a local desktop app that turns ordinary video into aggressively stylized animation through an AUTOMATIC1111/Forge-compatible Stable Diffusion WebUI API.
 
-**Current product runtime: v3.5 · Simple Product Consolidation**
+**Product shell: v3.6 · Dream Rotoscope + real frame preview**
+
+The style library is v3.7; backend resilience remains v3.6.3. These components have independent versions.
 
 The public workflow is intentionally small:
 
@@ -11,13 +13,23 @@ choose video
 → choose look
 → optional ControlNet structure rail
 → choose steps
+→ PREVIEW FRAME (optional, actual diffusion)
 → PROCESS VIDEO
 → open result
 ```
 
 Everything else—shot detection, reference locking, subject continuity, temporal transport, adaptive rendering, cache safety, VFR reconstruction, audio restoration, and backend compatibility—is engine-owned.
 
-## What v3.5 changes
+## What this release adds
+
+- **Dream Rotoscope** — expressive painted color regions and selective ink, with stable, form-following finishing and no random texture phase.
+- **PREVIEW FRAME** — one lossless source frame rendered through the actual engine, shown beside the original. No full-video extraction or GPU sequence is needed.
+- More conservative temporal confidence at occlusions and exposed borders, correct transport between adaptive inference sizes, and explicit shot-boundary resets.
+- Scrollable compact layout, captured public render choices, reliable completion labels, and FFmpeg 9 timing compatibility while retaining legacy commands.
+
+A frame preview evaluates appearance only. It does not evaluate motion, later shots, faces over time, or long-render stability. See [the validation report](docs/DREAM_ROTOSCOPE.md) for measured synthetic results and remaining real-backend work.
+
+## Canonical application
 
 v3.5 consolidates the product around one canonical shell instead of stacking a new UI class for every release.
 
@@ -41,6 +53,7 @@ Normal use exposes only:
 - **Look** — searchable style/process library
 - **ControlNet** — on/off structural rail
 - **Steps** — 12–36, default 24
+- **Preview Frame** — first frame, actual diffusion at the engine's inference resolution
 - **Process Video**
 
 Aggressive redraw is the baseline policy. There is no AGGRO toggle.
@@ -120,14 +133,26 @@ python app.py
 
 Python dependencies are listed in `requirements.txt`. `ffmpeg` and `ffprobe` must be available on PATH.
 
+For an isolated Windows install (CI uses Python 3.11):
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app.py
+```
+
 ### 3. Process
 
 1. **CHOOSE VIDEO**
 2. choose a Look
 3. leave **ControlNet** on for a loose structural rail, or turn it off for freer redraw
 4. choose Steps
-5. **PROCESS VIDEO**
-6. open the result
+5. optionally **PREVIEW FRAME** and inspect original versus stylized
+6. **PROCESS VIDEO**, then open the result
+
+Try **Dream Rotoscope** for an ink-and-gouache treatment. It uses the loaded Forge/A1111 checkpoint and optional Canny ControlNet; it needs no extra model dependency. A compatible installed checkpoint still determines how well the prompt is interpreted.
+
+Preview uses an owned subproject at `<source>_comicframe/previews/first_frame/`, with a separate test-frame cache. It cannot mark full-render frames complete. The comparison PNG is shown in the app; double-click the preview to open it at full size. Its path appears under Result. Steps and ControlNet match the captured choices; sequence Looks preview their opening treatment. Rendering stays serial against the shared backend.
 
 Project/cache storage is derived from the source automatically.
 
@@ -135,6 +160,7 @@ Project/cache storage is derived from the source automatically.
 
 The public library combines shot-aware sequences with aggressive single-style passes. Current examples include:
 
+- Dream Rotoscope
 - Graphic Shock
 - Cyberpunk Print
 - Toxic Xerox
@@ -195,6 +221,7 @@ Generated state is contained inside the owned project directory.
 - `comicframe_product.py` — single public UI + public render-policy bridge
 - `comicframe_style_library.py` — curated style registration and aggressive redraw baseline
 - `comicframe_simple.py` — one-button video processing boundary over the engine
+- `comicframe_preview.py` — immutable public request, bounded first-frame extraction and comparison presentation
 
 ### Engine
 
@@ -242,6 +269,8 @@ ComicFrame retains the hardened engine behavior from the v2.8–v2.9 audit serie
 - selective compatible-frame reuse
 
 See `KNOWN_ISSUES.md` for current non-blocking debt.
+
+This release versions raw flow-cache keys and the transport profile because the confidence algorithm changes pixels. Old flow files are bypassed. Existing rendered frames and project data remain intact; an incompatible full-render profile is rejected instead of mixing temporal algorithms. To retain an old render and start fresh, rename its `<source>_comicframe` directory before processing again. First-frame previews remain isolated from that full-render cache.
 
 ## Engine documentation
 

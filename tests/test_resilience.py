@@ -125,3 +125,11 @@ def test_resume_profile_still_rejects_checkpoint_changes():
     old = resilience.normalize_resume_profile(_resume_profile(checkpoint="model-a"))
     new = resilience.normalize_resume_profile(_resume_profile(checkpoint="model-b"))
     assert old != new
+
+
+def test_resume_profile_keeps_transport_algorithm_changes_render_affecting():
+    old = _resume_profile()
+    old["optical_flow"] = {"engine": "Optical Flow · Fast"}
+    new = _resume_profile()
+    new["optical_flow"] = {"engine": "Optical Flow · Fast", "transport_version": "2-occlusion-safe"}
+    assert resilience.normalize_resume_profile(old) != resilience.normalize_resume_profile(new)
