@@ -1,6 +1,10 @@
 # Known Limitations and Maintenance Debt
 
-This file tracks non-blocking limitations of the current v2.9.1 runtime. Confirmed repo-owned correctness defects found during the v2.8/v2.9 audit were fixed and regression-tested rather than left here as accepted behavior.
+This file tracks limitations of the v3.6 product shell, v3.7 style library and retained v2 engine boundaries. Backend resilience remains v3.6.3; FFmpeg compatibility is v1.3.
+
+## Dream Rotoscope needs real-backend artistic acceptance
+
+Synthetic transport tests and mocked WebUI integration validate implementation behavior, not the quality of an animated painting. This release has no real diffusion visual comparison, face/hand acceptance review, or RTX 3060 throughput measurement. The public preview renders one actual diffusion frame when a backend is available; it cannot establish temporal quality. A short sequence preview is the next product milestone.
 
 ## ControlNet installation is external to ComicFrame
 
@@ -16,9 +20,9 @@ Manual Subject Library assignments remain the authoritative override.
 
 ## Tk still owns part of the configuration surface
 
-The current v2 stack grew from a desktop application and several rendering layers still read or temporarily change Tk variables while a worker job is active. v2.8+ locks configuration controls for the duration of a job, and v2.9.1 clears process-local state when project/source context changes, but this remains architecture debt.
+The current v2 stack grew from a desktop application and several rendering layers still read or temporarily change Tk variables while a worker job is active. The public source/project/Look/ControlNet/Steps are now captured in a frozen `RenderRequest`, and hidden job defaults are applied before the worker starts. Internal engine settings still use Tk variables. Configuration locking and context reconciliation remain in place.
 
-The v3.0 roadmap calls for an immutable `RenderSession` snapshot and explicit services so widgets stop doubling as the configuration store.
+The next architecture milestone is a complete immutable engine configuration and explicit backend service boundary so widgets stop doubling as the configuration store.
 
 ## Cooperative mixin depth remains high
 
@@ -30,9 +34,9 @@ The next major engineering target is decomposition without changing the v2.9.1 p
 
 When final output is restored to source dimensions, ComicFrame uses ffmpeg/Lanczos. It is not an AI super-resolution pass. Adaptive per-shot inference cannot silently change final output dimensions; an AI upscale is an optional future quality feature.
 
-## CI is split between pytest and historical workflow smoke scripts
+## Native and platform coverage
 
-The hardening and stability audits use normal pytest modules, while several older subsystem workflows still contain substantial inline Python. This is maintenance debt, not a runtime blocker. The roadmap calls for migrating those scripts into reusable tests and adding Windows + ffmpeg integration coverage.
+CI runs pytest, including generated CFR/VFR/audio integration checks when FFmpeg is available, and small inline import/registry checks. Windows native preview-to-full-render smoke is reproducible with `tools/smoke_desktop.py`; its backend responses are mocked. Screenshot capture was unavailable in this validation environment, so native geometry assertions are not a visual layout review. Other OS desktop behavior and high-DPI layouts need broader review.
 
 ## External backend behavior can still vary
 

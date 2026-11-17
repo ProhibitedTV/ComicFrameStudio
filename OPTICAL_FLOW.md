@@ -2,6 +2,8 @@
 
 v1.9 upgrades ComicFrame's temporal continuity from static-pixel reuse to motion-aware style transport.
 
+The v3.6 product uses transport algorithm `2-occlusion-safe` in this same module. Shot Memory and Render Intelligence share its confidence calculation. Feathering and upsampling cannot restore rejected support; full-resolution remap bounds are checked again. Previous styled frames are resized into the current inference coordinate system before transport, and authored/detected shot starts bypass prior-shot history in both conditioning and finishing. Raw cache keys and render profiles include the algorithm version. See [reproducible measurements](docs/DREAM_ROTOSCOPE.md).
+
 ## Why this exists
 
 The v1.6 Basic temporal lock compares consecutive source frames and blends the previous stylized frame only where source pixels stay visually similar. That works well for static backgrounds but naturally weakens during camera movement, head turns, walking, hand motion, and moving product shots.

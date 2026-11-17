@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Targeted ffmpeg audio-remux recovery for ComicFrame Studio.
+"""Targeted ffmpeg timing compatibility and audio-remux recovery.
 
 Long renders should not be lost because the final ``styled_silent.mp4`` + source
 audio mux hits a codec, timestamp, or old-FFmpeg compatibility edge case. The
 canonical renderer remains untouched; this module patches only the shared
-``_run`` boundary and only intercepts the final audio-restore command shape.
+``_run`` boundary for removed timing flags and the final audio-restore shape.
 
 The recovery order deliberately starts with the most portable operation possible:
 stream-copy the source audio into the already-rendered video. That path works on
@@ -14,6 +14,7 @@ never discarded by this layer.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -21,7 +22,7 @@ from typing import Iterable, Sequence
 
 from comicframe_studio import ComicFrameStudio as _BaseStudio
 
-FFMPEG_MUX_FIX_VERSION = "1.2"
+FFMPEG_MUX_FIX_VERSION = "1.3"
 _PATCH_FLAG = "_comicframe_ffmpeg_mux_fix_v1"
 _ORIGINAL_RUN_ATTR = "_comicframe_ffmpeg_mux_original_run"
 
@@ -158,13 +159,60 @@ def _stderr_tail(text: str | None, max_lines: int = 14, max_chars: int = 5000) -
 
 
 def _run_mux_attempt(command: list[str], capture: bool) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    completed = subprocess.run(
         command,
         check=False,
         text=True,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE,
     )
+    if completed.returncode and _removed_vsync(completed.stderr or ""):
+        modern = modern_timing_command(command)
+        if modern != command:
+            return subprocess.run(
+                modern, check=False, text=True,
+                stdout=subprocess.PIPE if capture else None, stderr=subprocess.PIPE,
+            )
+    return completed
+
+
+def _removed_vsync(detail: str) -> bool:
+    return "unrecognized option 'vsync'" in detail.lower()
+
+
+def modern_timing_command(args) -> list[str]:
+    """Translate only engine-owned timing modes, preserving VFR/passthrough."""
+    command = _parts(args)
+    for index in range(len(command) - 1):
+        if command[index] == "-vsync" and command[index + 1] in {"0", "vfr"}:
+            mode = "passthrough" if command[index + 1] == "0" else "vfr"
+            command[index:index + 2] = ["-fps_mode", mode]
+    return command
+
+
+def _run_with_timing_compat(self, args, capture, original_run):
+    command = _parts(args)
+    if not command or _exe_name(command[0]) not in {"ffmpeg", "ffmpeg.exe"} or "-vsync" not in command:
+        return original_run(self, args, capture)
+    modern = modern_timing_command(command)
+    if modern == command:
+        return original_run(self, args, capture)
+    # Learn from a real rejected invocation once per executable, rather than
+    # probing capabilities on every extraction/encode or abandoning old builds.
+    executable = shutil.which(command[0]) or command[0]
+    cache = getattr(self, "_ffmpeg_timing_compat", {})
+    if cache.get(executable):
+        return original_run(self, modern, capture)
+    try:
+        result = original_run(self, command, True)
+    except subprocess.CalledProcessError as exc:
+        if not _removed_vsync(str(exc.stderr or "")):
+            raise
+        self._log("FFmpeg timing compatibility: retrying with -fps_mode.")
+        result = original_run(self, modern, True)
+        cache[executable] = True
+        self._ffmpeg_timing_compat = cache
+    return result if capture else ""
 
 
 def _record_failure(
@@ -283,7 +331,7 @@ def _looks_like_ancient_ffmpeg(failures: list[tuple[str, int, str]]) -> bool:
 def _run_with_mux_recovery(self, args, capture=False):
     original_run = getattr(_BaseStudio, _ORIGINAL_RUN_ATTR)
     if not is_audio_restore_command(args):
-        return original_run(self, args, capture)
+        return _run_with_timing_compat(self, args, capture, original_run)
 
     command = _parts(args)
     self._log("$ " + " ".join(command))

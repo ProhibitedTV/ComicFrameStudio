@@ -149,7 +149,7 @@ class ComicFrameStudioApp(_BaseComicFrameStudioApp):
 
     def __init__(self):
         super().__init__()
-        self.title(f"ComicFrame Studio {RESILIENCE_VERSION}")
+        self.title(f"ComicFrame Studio {product.PRODUCT_VERSION}")
 
     @staticmethod
     def _profile_without_director(profile: dict[str, Any]) -> dict[str, Any]:

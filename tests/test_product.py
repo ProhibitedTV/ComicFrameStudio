@@ -149,6 +149,6 @@ def test_public_surface_and_live_presence_contract():
     assert "_presence_tick" in busy_source
     assert "LIVE_PREVIEW_EVERY" in progress_source
     assert product.MIN_STEPS == 12 and product.DEFAULT_STEPS == 24 and product.MAX_STEPS == 36
-    assert product.PRODUCT_VERSION == "3.5"
-    assert STYLE_LIBRARY_VERSION == "3.6"
+    assert product.PRODUCT_VERSION == "3.6"
+    assert STYLE_LIBRARY_VERSION == "3.7"
     assert PROMPT_WEIGHT_POLICY_VERSION == "1"

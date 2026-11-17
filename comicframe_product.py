@@ -25,7 +25,7 @@ from comicframe_style_library import STYLE_LIBRARY_VERSION, register_style_libra
 
 register_style_library()
 
-PRODUCT_VERSION = "3.5"
+PRODUCT_VERSION = "3.6"
 MIN_STEPS, MAX_STEPS, DEFAULT_STEPS = 12, 36, 24
 DEFAULT_PROCESS = "Graphic Shock · maximum print"
 LIVE_PREVIEW_EVERY = 5
@@ -124,13 +124,22 @@ def primary_action_state(video_text: str, busy: bool) -> tuple[str, str]:
     text = str(video_text or "").strip()
     if not text:
         return "CHOOSE A VIDEO FIRST", "disabled"
-    if not Path(text).expanduser().exists():
+    if not Path(text).expanduser().is_file():
         return "SOURCE MISSING", "disabled"
     return "PROCESS VIDEO", "normal"
 
 
 def aggressive_render_parameters(style_name: str, controlnet_enabled: bool) -> dict[str, float | bool]:
     pack = styles.STYLE_PACKS.get(style_name)
+    if pack is not None and pack.finish == "dream_rotoscope":
+        return {
+            "controlnet_enabled": bool(controlnet_enabled),
+            "denoise": pack.denoise,
+            "control_weight": pack.control_weight if controlnet_enabled else 0.0,
+            "guidance_end": pack.guidance_end if controlnet_enabled else 0.0,
+            "fx": pack.fx,
+            "temporal_strength": pack.temporal_strength,
+        }
     if pack is None:
         return {
             "controlnet_enabled": bool(controlnet_enabled),
@@ -168,7 +177,7 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
         self._presence_tick_job = None
         self._presence_last_preview_frame: int | None = None
         super().__init__()
-        self.title("ComicFrame Studio 3.5")
+        self.title(f"ComicFrame Studio {PRODUCT_VERSION}")
         self._update_primary_action()
 
     def _install_simple_shell(self) -> None:
@@ -226,6 +235,10 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
         ).pack(side="left", padx=(8, 0))
         self.simple_creative_hint = ttk.Label(shell, text="", style="Muted.TLabel")
         self.simple_creative_hint.pack(fill="x", pady=(5, 0), before=action)
+        self.simple_preview_button = ttk.Button(
+            action, text="PREVIEW FRAME", command=self._simple_preview_clicked,
+        )
+        self.simple_preview_button.pack(side="left", padx=(0, 8), before=self.simple_process_button)
 
         result_actions = self.simple_save_button.master
         self.simple_copy_path_button = ttk.Button(
@@ -306,6 +319,7 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
         text, state = primary_action_state(str(self.video_var.get() or ""), bool(self._simple_busy))
         try:
             self.simple_process_button.configure(text=text, state=state)
+            self.simple_preview_button.configure(state=state)
         except Exception:
             pass
 
@@ -385,7 +399,8 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
         public_var = getattr(self, "simple_controlnet_var", None)
         if public_var is None or not hasattr(public_var, "get"):
             return
-        enabled = bool(public_var.get())
+        request = getattr(self, "_simple_render_request", None)
+        enabled = request.controlnet if request is not None else bool(public_var.get())
         for name in ("control_enabled_var", "control_required_var"):
             target = getattr(self, name, None)
             try:
@@ -416,8 +431,9 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
 
     def _apply_frame_direction(self, style_name: str, intensity: float, settings):
         directed, saved = super()._apply_frame_direction(style_name, intensity, settings)
-        enabled = bool(self.simple_controlnet_var.get())
-        steps = max(MIN_STEPS, min(MAX_STEPS, int(self.simple_steps_var.get())))
+        request = getattr(self, "_simple_render_request", None)
+        enabled = request.controlnet if request is not None else bool(self.simple_controlnet_var.get())
+        steps = max(MIN_STEPS, min(MAX_STEPS, request.steps if request is not None else int(self.simple_steps_var.get())))
         for name in ("control_enabled_var", "control_required_var"):
             self._remember_variable(saved, self, name)
             var = getattr(self, name, None)
@@ -460,10 +476,11 @@ class ComicFrameStudioApp(simple.ComicFrameStudioApp):
         profile["app_version"] = PRODUCT_VERSION
         control_var = getattr(self, "simple_controlnet_var", None)
         steps_var = getattr(self, "simple_steps_var", None)
+        request = getattr(self, "_simple_render_request", None)
         profile["creative_controls"] = {
             "version": PRODUCT_VERSION,
-            "controlnet": bool(control_var.get()) if control_var is not None else True,
-            "steps": int(steps_var.get()) if steps_var is not None else DEFAULT_STEPS,
+            "controlnet": request.controlnet if request is not None else (bool(control_var.get()) if control_var is not None else True),
+            "steps": request.steps if request is not None else (int(steps_var.get()) if steps_var is not None else DEFAULT_STEPS),
             "style_policy": "aggressive-by-default",
             "style_library": STYLE_LIBRARY_VERSION,
         }

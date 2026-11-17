@@ -96,6 +96,42 @@ def test_ancient_ffmpeg_signature_is_detected():
     assert fix._looks_like_ancient_ffmpeg(failures)
 
 
+def test_modern_timing_translation_preserves_the_engine_timing_modes():
+    for old, new in (("0", "passthrough"), ("vfr", "vfr")):
+        command = ["ffmpeg", "-i", "in.mp4", "-vsync", old, "out.mp4"]
+        assert fix.modern_timing_command(command) == ["ffmpeg", "-i", "in.mp4", "-fps_mode", new, "out.mp4"]
+        assert command[-3] == "-vsync"
+
+
+def test_timing_compatibility_learns_removed_option_without_changing_legacy_commands():
+    calls = []
+    runner = DummyRunner()
+
+    def run(_self, command, capture):
+        calls.append(command)
+        if "-vsync" in command:
+            raise subprocess.CalledProcessError(1, command, stderr="Unrecognized option 'vsync'.")
+        return "ok"
+
+    command = ["ffmpeg", "-i", "input.mp4", "-vsync", "0", "frame_%06d.png"]
+    assert fix._run_with_timing_compat(runner, command, True, run) == "ok"
+    fix._run_with_timing_compat(runner, command, False, run)
+    assert ["-vsync" in c for c in calls] == [True, False, False]
+    calls.clear()
+    fix._run_with_timing_compat(DummyRunner(), command, False, lambda _s, c, capture: calls.append(c))
+    assert calls == [command]
+
+
+def test_timing_compatibility_does_not_hide_other_failures():
+    import pytest
+
+    def fail(_self, command, capture):
+        raise subprocess.CalledProcessError(1, command, stderr="Invalid data found when processing input")
+
+    with pytest.raises(subprocess.CalledProcessError):
+        fix._run_with_timing_compat(DummyRunner(), ["ffmpeg", "-vsync", "0", "out.png"], False, fail)
+
+
 def test_mux_runner_recovers_on_first_portable_retry(monkeypatch):
     attempts: list[list[str]] = []
 

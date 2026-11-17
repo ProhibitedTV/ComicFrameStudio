@@ -1,0 +1,132 @@
+{
+  "backend": "mocked Forge/A1111 responses; not a visual diffusion assessment",
+  "errors": [],
+  "geometry": {
+    "height": 900,
+    "width": 940,
+    "mapped": 1,
+    "state": "normal"
+  },
+  "controls": {
+    "simple_preview_button": {
+      "top": 594,
+      "bottom": 625,
+      "height": 31
+    },
+    "simple_process_button": {
+      "top": 593,
+      "bottom": 626,
+      "height": 33
+    },
+    "simple_cancel_button": {
+      "top": 594,
+      "bottom": 625,
+      "height": 31
+    },
+    "simple_open_button": {
+      "top": 761,
+      "bottom": 794,
+      "height": 33
+    }
+  },
+  "shell_layout": [
+    {
+      "name": ".!frame2.!canvas.!frame.!frame",
+      "y": 18,
+      "height": 68,
+      "requested_height": 68,
+      "mapped": 1
+    },
+    {
+      "name": ".!frame2.!canvas.!frame.!labelframe",
+      "y": 98,
+      "height": 278,
+      "requested_height": 278,
+      "mapped": 1
+    },
+    {
+      "name": ".!frame2.!canvas.!frame.!labelframe2",
+      "y": 386,
+      "height": 136,
+      "requested_height": 136,
+      "mapped": 1
+    },
+    {
+      "name": ".!frame2.!canvas.!frame.!frame2",
+      "y": 593,
+      "height": 33,
+      "requested_height": 33,
+      "mapped": 1
+    },
+    {
+      "name": ".!frame2.!canvas.!frame.!progressbar",
+      "y": 640,
+      "height": 18,
+      "requested_height": 18,
+      "mapped": 1
+    },
+    {
+      "name": ".!frame2.!canvas.!frame.!label",
+      "y": 662,
+      "height": 21,
+      "requested_height": 21,
+      "mapped": 1
+    },
+    {
+      "name": ".!frame2.!canvas.!frame.!labelframe3",
+      "y": 695,
+      "height": 115,
+      "requested_height": 115,
+      "mapped": 1
+    },
+    {
+      "name": ".!frame2.!canvas.!frame.!frame3",
+      "y": 536,
+      "height": 21,
+      "requested_height": 21,
+      "mapped": 1
+    },
+    {
+      "name": ".!frame2.!canvas.!frame.!label2",
+      "y": 562,
+      "height": 19,
+      "requested_height": 19,
+      "mapped": 1
+    }
+  ],
+  "preview_status": "Preview ready \u00b7 first frame \u00b7 actual diffusion \u00b7 motion not evaluated",
+  "preview_requests": 1,
+  "preview_restored_project": true,
+  "controls_live": {
+    "simple_preview_button": {
+      "top": 594,
+      "bottom": 625,
+      "height": 31,
+      "mapped": 1
+    },
+    "simple_process_button": {
+      "top": 593,
+      "bottom": 626,
+      "height": 33,
+      "mapped": 1
+    },
+    "simple_cancel_button": {
+      "top": 594,
+      "bottom": 625,
+      "height": 31,
+      "mapped": 1
+    },
+    "simple_open_button": {
+      "top": 761,
+      "bottom": 794,
+      "height": 33,
+      "mapped": 1
+    }
+  },
+  "full_status": "Video ready",
+  "full_result_exists": true,
+  "total_requests": 7,
+  "all_steps_12": true,
+  "no_controlnet_units": false,
+  "controlnet_uses_untouched_source": true
+}

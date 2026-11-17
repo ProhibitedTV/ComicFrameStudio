@@ -19,6 +19,14 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: python -m pip install -r requirements.txt pytest
+      - name: Ensure media integration tools
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
       - name: Compile repository
         run: python -m compileall -q .
       - name: Import canonical product and engine
